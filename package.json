@@ -2,7 +2,7 @@
   "name": "codex-agent-lab",
   "displayName": "Codex Agent Lab (Unofficial)",
   "description": "A clean-room VS Code client for the documented Codex app-server protocol.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -237,7 +237,7 @@
         "codexAgent.inlineReview.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Highlight Codex changes in the existing editor, show per-hunk Keep/Undo actions, and reveal the before/after diff on hover."
+          "description": "Highlight Codex changes in the existing editor, show clickable per-hunk Keep/Undo pills, and reveal the before/after diff on hover."
         }
       }
     }

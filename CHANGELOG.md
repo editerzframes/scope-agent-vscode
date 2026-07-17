@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- Replaced the default per-hunk CodeLens row with clickable inline Keep and Undo pills.
+- Used two native inlay-hint kinds to visually distinguish Keep from Undo while respecting the active theme.
+- Added configuration-aware CodeLens fallback when editor inlay hints are normally disabled.
+- Kept the compact red/green hover diff and all safe per-hunk rollback behavior.
+
 ## 0.7.0
 
 - Replaced expanded comment-thread panels with a compact native editor review.
