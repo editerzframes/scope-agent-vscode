@@ -1,0 +1,253 @@
+{
+  "name": "codex-agent-lab",
+  "displayName": "Codex Agent Lab (Unofficial)",
+  "description": "A clean-room VS Code client for the documented Codex app-server protocol.",
+  "version": "0.5.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "agent",
+    "openai",
+    "ai",
+    "coding"
+  ],
+  "activationEvents": [
+    "onView:codexAgent.chat",
+    "onCommand:codexAgent.open"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Codex Agent Lab can run commands and edit files, so the workspace must be trusted."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "npm run check && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexAgent.open",
+        "title": "Codex Agent: Open Sidebar",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "codexAgent.newChat",
+        "title": "Codex Agent: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "codexAgent.showHistory",
+        "title": "Codex Agent: Previous Chats",
+        "icon": "$(history)"
+      },
+      {
+        "command": "codexAgent.openCommandMenu",
+        "title": "Codex Agent: Open Command Menu",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "codexAgent.addSelection",
+        "title": "Codex Agent: Add Selection to Chat"
+      },
+      {
+        "command": "codexAgent.addFile",
+        "title": "Codex Agent: Add Active File to Chat"
+      },
+      {
+        "command": "codexAgent.login",
+        "title": "Codex Agent: Sign In"
+      },
+      {
+        "command": "codexAgent.logout",
+        "title": "Codex Agent: Sign Out"
+      },
+      {
+        "command": "codexAgent.stop",
+        "title": "Codex Agent: Stop Current Turn",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "codexAgent.reviewChanges",
+        "title": "Codex Agent: Review Uncommitted Changes"
+      },
+      {
+        "command": "codexAgent.reviewPendingChanges",
+        "title": "Codex Agent: Review Pending Edits Inline"
+      },
+      {
+        "command": "codexAgent.acceptFileChange",
+        "title": "Codex Agent: Accept Edits in This File",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "codexAgent.rejectFileChange",
+        "title": "Codex Agent: Reject Edits in This File",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "codexAgent.acceptAllChanges",
+        "title": "Codex Agent: Accept All Pending Edits"
+      },
+      {
+        "command": "codexAgent.showStatus",
+        "title": "Codex Agent: Show Account and Usage"
+      },
+      {
+        "command": "codexAgent.openSettings",
+        "title": "Codex Agent: Open Settings"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codexAgent",
+          "title": "Codex Agent Lab",
+          "icon": "media/codex-agent.svg"
+        }
+      ]
+    },
+    "views": {
+      "codexAgent": [
+        {
+          "type": "webview",
+          "id": "codexAgent.chat",
+          "name": "Agent"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codexAgent.showHistory",
+          "when": "view == codexAgent.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codexAgent.newChat",
+          "when": "view == codexAgent.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codexAgent.openCommandMenu",
+          "when": "view == codexAgent.chat",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codexAgent.acceptFileChange",
+          "when": "codexAgent.activeFileHasPendingChanges",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codexAgent.rejectFileChange",
+          "when": "codexAgent.activeFileCanReject",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codexAgent.addSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@50"
+        },
+        {
+          "command": "codexAgent.addFile",
+          "group": "navigation@51"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "codexAgent.acceptFileChange",
+          "when": "codexAgent.activeFileHasPendingChanges",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codexAgent.rejectFileChange",
+          "when": "codexAgent.activeFileCanReject",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codex Agent Lab",
+      "properties": {
+        "codexAgent.cliExecutable": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the Codex CLI executable. Leave empty to auto-detect it."
+        },
+        "codexAgent.model": {
+          "type": "string",
+          "default": "",
+          "description": "Default Codex model. Leave empty to use the server-selected default."
+        },
+        "codexAgent.reasoningEffort": {
+          "type": "string",
+          "default": "",
+          "description": "Optional reasoning effort sent with each turn (for example low, medium, high, or xhigh)."
+        },
+        "codexAgent.sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ],
+          "enumDescriptions": [
+            "Allow inspection only.",
+            "Allow edits within the active workspace.",
+            "Disable the filesystem sandbox. Use only in controlled environments."
+          ],
+          "default": "workspace-write",
+          "description": "Filesystem sandbox applied to new Codex threads."
+        },
+        "codexAgent.approvalPolicy": {
+          "type": "string",
+          "enum": [
+            "on-request",
+            "untrusted",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Ask when Codex needs elevated access.",
+            "Require approval for commands not covered by trusted rules.",
+            "Never display approval prompts."
+          ],
+          "default": "on-request",
+          "description": "Approval policy applied to new Codex threads."
+        },
+        "codexAgent.inlineReview.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight Codex-edited lines in the existing editor and show Accept/Reject CodeLens actions."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  }
+}
