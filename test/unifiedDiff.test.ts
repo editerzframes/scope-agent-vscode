@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  changedDiffLinesForHunk,
   changedLinesForHunk,
   oldTextForHunk,
   parseUnifiedDiffHunks,
@@ -14,6 +15,12 @@ test("extracts the before and after lines for an inline review block", () => {
     removed: ["-- old option", "before"],
     added: ["++ new option", "after"],
   });
+  assert.deepEqual(hunk && changedDiffLinesForHunk(hunk), [
+    "--- old option",
+    "-before",
+    "+++ new option",
+    "+after",
+  ]);
 });
 
 test("reverses source lines that resemble unified-diff file headers", () => {

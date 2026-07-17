@@ -9,6 +9,7 @@ import {
 } from "./codexService";
 import { parseAggregatedUnifiedDiff, UnifiedFileDiff } from "./turnDiff";
 import {
+  changedDiffLinesForHunk,
   changedLinesForHunk,
   newLineRangesForHunk,
   parseUnifiedDiffHunks,
@@ -51,9 +52,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   private readonly captureTasks = new Map<string, Promise<void>>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly codeLensEmitter = new vscode.EventEmitter<void>();
-  private readonly reviewThreads = new Map<string, vscode.CommentThread>();
-  private readonly reviewThreadTargets = new WeakMap<vscode.CommentThread, { uri: vscode.Uri; hunkId: string }>();
-  private readonly commentController: vscode.CommentController;
   private reviewPromptTimer: NodeJS.Timeout | undefined;
 
   readonly onDidChangeCodeLenses = this.codeLensEmitter.event;
@@ -104,10 +102,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     private readonly service: CodexService,
     private readonly output: vscode.OutputChannel,
   ) {
-    this.commentController = vscode.comments.createCommentController(
-      "codexAgent.inlineReview",
-      "Codex inline changes",
-    );
     this.service.on("filePatch", this.filePatchListener);
     this.service.on("turnPreparing", this.turnPreparingListener);
     this.service.on("turnDiff", this.turnDiffListener);
@@ -121,7 +115,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       this.changeDecoration,
       this.deletionBoundaryDecoration,
       this.labelDecoration,
-      this.commentController,
       this.codeLensEmitter,
     );
   }
@@ -145,7 +138,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       const anchor = this.hunkAnchor(document, hunk);
       lenses.push(
         new vscode.CodeLens(anchor, {
-          title: "$(check) Keep change",
+          title: "$(check) Keep",
           tooltip: "Keep this Codex change",
           command: "codexAgent.acceptHunk",
           arguments: [document.uri, hunk.id],
@@ -154,7 +147,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       if (entry.canReject) {
         lenses.push(
           new vscode.CodeLens(anchor, {
-            title: "$(discard) Undo change",
+            title: "$(discard) Undo",
             tooltip: "Restore this block to its pre-Codex content",
             command: "codexAgent.rejectHunk",
             arguments: [document.uri, hunk.id],
@@ -203,24 +196,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       }
       throw error;
     }
-  }
-
-  async keepReviewThread(value: unknown): Promise<void> {
-    const target = this.reviewThreadTarget(value);
-    if (!target) {
-      vscode.window.showInformationMessage("This Codex change is no longer pending.");
-      return;
-    }
-    await this.acceptHunk(target.uri, target.hunkId);
-  }
-
-  async undoReviewThread(value: unknown): Promise<void> {
-    const target = this.reviewThreadTarget(value);
-    if (!target) {
-      vscode.window.showInformationMessage("This Codex change is no longer pending.");
-      return;
-    }
-    await this.rejectHunk(target.uri, target.hunkId);
   }
 
   async acceptHunk(uri: vscode.Uri, hunkId: string): Promise<void> {
@@ -686,8 +661,18 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
 
   private editorRanges(document: vscode.TextDocument, entry: PendingFileChange): vscode.Range[] {
     const lastLine = Math.max(0, document.lineCount - 1);
-    const parsed = entry.hunks.flatMap((hunk) => newLineRangesForHunk(hunk));
-    const source = parsed.length > 0 ? parsed : [{ startLine: 0, endLine: lastLine }];
+    if (entry.hunks.length > 0) {
+      return entry.hunks.flatMap((hunk) => this.rangesForHunk(document, hunk));
+    }
+    return [new vscode.Range(document.lineAt(0).range.start, document.lineAt(lastLine).range.end)];
+  }
+
+  private rangesForHunk(document: vscode.TextDocument, hunk: UnifiedDiffHunk): vscode.Range[] {
+    const lastLine = Math.max(0, document.lineCount - 1);
+    const parsed = newLineRangesForHunk(hunk);
+    const source = parsed.length > 0
+      ? parsed
+      : [{ startLine: Math.max(0, hunk.newStart - 1), endLine: Math.max(0, hunk.newStart - 1) }];
     return source.map((range) => {
       const start = Math.min(lastLine, Math.max(0, range.startLine));
       const end = Math.min(lastLine, Math.max(start, range.endLine));
@@ -703,7 +688,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   }
 
   private refreshReviewUi(): void {
-    this.syncReviewThreads();
     this.codeLensEmitter.fire();
     this.refreshVisibleEditors();
     this.updateContextKeys();
@@ -719,7 +703,15 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         continue;
       }
       const ranges = this.editorRanges(editor.document, entry);
-      editor.setDecorations(this.changeDecoration, ranges);
+      const changeDecorations = entry.hunks.length > 0
+        ? entry.hunks.flatMap((hunk) =>
+            this.rangesForHunk(editor.document, hunk).map((range) => ({
+              range,
+              hoverMessage: this.compactReviewHover(hunk),
+            })),
+          )
+        : ranges;
+      editor.setDecorations(this.changeDecoration, changeDecorations);
       editor.setDecorations(
         this.deletionBoundaryDecoration,
         entry.hunks
@@ -737,85 +729,13 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     }
   }
 
-  private syncReviewThreads(): void {
-    const desired = new Set<string>();
-    for (const entry of this.pending.values()) {
-      if (!entry.applied || !entry.after?.exists) {
-        continue;
-      }
-      for (const hunk of entry.hunks) {
-        const key = this.reviewThreadKey(entry.uri, hunk.id);
-        desired.add(key);
-        const range = this.reviewThreadRange(entry, hunk);
-        const comment = this.reviewComment(hunk);
-        let thread = this.reviewThreads.get(key);
-        if (!thread) {
-          thread = this.commentController.createCommentThread(entry.uri, range, [comment]);
-          this.reviewThreads.set(key, thread);
-          this.reviewThreadTargets.set(thread, { uri: entry.uri, hunkId: hunk.id });
-        } else {
-          thread.range = range;
-          thread.comments = [comment];
-        }
-        thread.label = this.reviewThreadLabel(hunk);
-        thread.contextValue = entry.canReject
-          ? "codexAgent.pendingChange"
-          : "codexAgent.acceptOnlyChange";
-        thread.canReply = false;
-        thread.state = vscode.CommentThreadState.Unresolved;
-        thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
-      }
-    }
-
-    for (const [key, thread] of this.reviewThreads) {
-      if (!desired.has(key)) {
-        this.reviewThreadTargets.delete(thread);
-        thread.dispose();
-        this.reviewThreads.delete(key);
-      }
-    }
-  }
-
-  private reviewComment(hunk: UnifiedDiffHunk): vscode.Comment {
+  private compactReviewHover(hunk: UnifiedDiffHunk): vscode.MarkdownString {
     const changed = changedLinesForHunk(hunk);
     const body = new vscode.MarkdownString();
-    if (changed.removed.length > 0) {
-      body.appendMarkdown("**Previous code**\n\n");
-      body.appendCodeblock(changed.removed.map((line) => `-${line}`).join("\n"), "diff");
-    } else {
-      body.appendMarkdown(
-        `**${changed.added.length} new line${changed.added.length === 1 ? "" : "s"} added below**`,
-      );
-    }
-    return {
-      body,
-      mode: vscode.CommentMode.Preview,
-      author: { name: "Codex" },
-      label: this.reviewThreadLabel(hunk),
-      contextValue: "codexAgent.inlineReviewComment",
-    };
-  }
-
-  private reviewThreadLabel(hunk: UnifiedDiffHunk): string {
-    const changed = changedLinesForHunk(hunk);
-    return `Codex change  +${changed.added.length}  −${changed.removed.length}`;
-  }
-
-  private reviewThreadRange(entry: PendingFileChange, hunk: UnifiedDiffHunk): vscode.Range {
-    const lineCount = Math.max(1, entry.after?.text.split(/\r?\n/).length ?? 1);
-    const changedLine = Math.min(lineCount - 1, Math.max(0, hunk.newStart - 1));
-    const anchorLine = changedLine > 0 ? changedLine - 1 : changedLine;
-    return new vscode.Range(anchorLine, 0, anchorLine, 0);
-  }
-
-  private reviewThreadKey(uri: vscode.Uri, hunkId: string): string {
-    return `${uri.toString()}#${hunkId}`;
-  }
-
-  private reviewThreadTarget(value: unknown): { uri: vscode.Uri; hunkId: string } | undefined {
-    return typeof value === "object" && value !== null
-      ? this.reviewThreadTargets.get(value as vscode.CommentThread)
-      : undefined;
+    body.appendMarkdown(`**Codex change** · +${changed.added.length} −${changed.removed.length}\n\n`);
+    body.appendCodeblock(changedDiffLinesForHunk(hunk).join("\n"), "diff");
+    body.appendMarkdown("\n\nUse **Keep** or **Undo** above this block.");
+    return body;
   }
 
   private updateContextKeys(): void {
@@ -841,7 +761,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       void vscode.window
         .showInformationMessage(
           activeHasChange
-            ? "Codex changes are ready in the open editor. Use the Keep/Undo actions on each block or in the editor title."
+            ? "Codex changes are ready in the open editor. Use Keep/Undo above each block, and hover a green block to compare the previous code."
             : `Codex changed ${count} file${count === 1 ? "" : "s"}. Review the edits in the original editor?`,
           activeHasChange ? "Go to first change" : "Review inline",
           "Keep all",

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Replaced expanded comment-thread panels with a compact native editor review.
+- Kept per-hunk green highlights and shortened the actions to Keep and Undo.
+- Added red-before/green-after diff previews when hovering any highlighted change block.
+- Preserved deletion markers, whole-file actions, safe snapshot checks, and the v0.5.0 rollback checkpoint.
+
 ## 0.6.0
 
 - Added expanded inline review blocks to the original editor for every pending diff hunk.

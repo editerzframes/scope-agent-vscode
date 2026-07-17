@@ -69,6 +69,10 @@ export function changedLinesForHunk(hunk: UnifiedDiffHunk): HunkChangedLines {
   return { added, removed };
 }
 
+export function changedDiffLinesForHunk(hunk: UnifiedDiffHunk): string[] {
+  return hunk.lines.filter((line) => line.startsWith("+") || line.startsWith("-"));
+}
+
 export function newLineRangesForHunk(hunk: UnifiedDiffHunk): ChangedLineRange[] {
   const touched = new Set<number>();
   let newLine = Math.max(0, hunk.newStart - 1);
