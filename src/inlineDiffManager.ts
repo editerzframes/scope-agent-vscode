@@ -44,7 +44,7 @@ interface PendingFileChange {
 
 const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
 
-export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayHintsProvider, vscode.Disposable {
+export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Disposable {
   private readonly pending = new Map<string, PendingFileChange>();
   private readonly prepared = new Map<string, PreparedOpenFile>();
   private readonly latestTurnDiffs = new Map<string, UnifiedFileDiff>();
@@ -52,11 +52,9 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
   private readonly captureTasks = new Map<string, Promise<void>>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly codeLensEmitter = new vscode.EventEmitter<void>();
-  private readonly inlayHintEmitter = new vscode.EventEmitter<void>();
   private reviewPromptTimer: NodeJS.Timeout | undefined;
 
   readonly onDidChangeCodeLenses = this.codeLensEmitter.event;
-  readonly onDidChangeInlayHints = this.inlayHintEmitter.event;
 
   private readonly changeDecoration = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
@@ -101,20 +99,13 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
     this.service.on("turnFinished", this.turnFinishedListener);
     this.disposables.push(
       vscode.languages.registerCodeLensProvider({ scheme: "file" }, this),
-      vscode.languages.registerInlayHintsProvider({ scheme: "file" }, this),
       vscode.window.onDidChangeVisibleTextEditors(() => this.refreshVisibleEditors()),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateContextKeys()),
       vscode.workspace.onDidOpenTextDocument(() => this.refreshVisibleEditors()),
       vscode.workspace.onDidChangeTextDocument(() => this.refreshVisibleEditors()),
-      vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("editor.inlayHints.enabled")) {
-          this.refreshReviewUi();
-        }
-      }),
       this.changeDecoration,
       this.deletionBoundaryDecoration,
       this.codeLensEmitter,
-      this.inlayHintEmitter,
     );
   }
 
@@ -131,21 +122,10 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
     if (entry.hunks.length === 0) {
       return this.fileCodeLenses(document, entry);
     }
-    if (this.inlineActionHintsEnabled(document)) {
-      return [];
-    }
 
     const lenses: vscode.CodeLens[] = [];
     for (const hunk of entry.hunks) {
       const anchor = this.hunkAnchor(document, hunk);
-      lenses.push(
-        new vscode.CodeLens(anchor, {
-          title: "$(check) Keep",
-          tooltip: "Keep this Codex change",
-          command: "codexAgent.acceptHunk",
-          arguments: [document.uri, hunk.id],
-        }),
-      );
       if (entry.canReject) {
         lenses.push(
           new vscode.CodeLens(anchor, {
@@ -156,46 +136,16 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
           }),
         );
       }
-    }
-    return lenses;
-  }
-
-  provideInlayHints(
-    document: vscode.TextDocument,
-    range: vscode.Range,
-    _token: vscode.CancellationToken,
-  ): vscode.InlayHint[] {
-    const entry = this.pending.get(document.uri.toString());
-    if (!entry?.applied || entry.hunks.length === 0 || !this.inlineActionHintsEnabled(document)) {
-      return [];
-    }
-
-    const hints: vscode.InlayHint[] = [];
-    for (const hunk of entry.hunks) {
-      const position = this.hunkAnchor(document, hunk).start;
-      if (!range.contains(position)) {
-        continue;
-      }
-      hints.push(
-        this.actionHint(position, "✓ Keep", vscode.InlayHintKind.Type, {
-          title: "Keep Codex change",
+      lenses.push(
+        new vscode.CodeLens(anchor, {
+          title: "$(check) Keep",
           tooltip: "Keep this Codex change",
           command: "codexAgent.acceptHunk",
           arguments: [document.uri, hunk.id],
         }),
       );
-      if (entry.canReject) {
-        hints.push(
-          this.actionHint(position, "↶ Undo", vscode.InlayHintKind.Parameter, {
-            title: "Undo Codex change",
-            tooltip: "Restore this block to its pre-Codex content",
-            command: "codexAgent.rejectHunk",
-            arguments: [document.uri, hunk.id],
-          }),
-        );
-      }
     }
-    return hints;
+    return lenses;
   }
 
   async reviewPendingChanges(): Promise<void> {
@@ -729,7 +679,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
 
   private refreshReviewUi(): void {
     this.codeLensEmitter.fire();
-    this.inlayHintEmitter.fire();
     this.refreshVisibleEditors();
     this.updateContextKeys();
   }
@@ -759,28 +708,6 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.InlayH
           .map((hunk) => this.hunkAnchor(editor.document, hunk)),
       );
     }
-  }
-
-  private actionHint(
-    position: vscode.Position,
-    label: string,
-    kind: vscode.InlayHintKind,
-    command: vscode.Command,
-  ): vscode.InlayHint {
-    const part = new vscode.InlayHintLabelPart(label);
-    part.command = command;
-    part.tooltip = command.tooltip;
-    const hint = new vscode.InlayHint(position, [part], kind);
-    hint.paddingLeft = true;
-    hint.paddingRight = true;
-    return hint;
-  }
-
-  private inlineActionHintsEnabled(document: vscode.TextDocument): boolean {
-    const setting = vscode.workspace
-      .getConfiguration("editor", document)
-      .get<string>("inlayHints.enabled", "on");
-    return setting === "on" || setting === "onUnlessPressed";
   }
 
   private compactReviewHover(hunk: UnifiedDiffHunk): vscode.MarkdownString {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0
+
+- Moved each hunk's review controls onto a dedicated compact row above the changed block.
+- Removed inline Keep/Undo pills so actions no longer displace or visually merge with source code.
+- Ordered the actions as Undo then Keep to match the reference review flow.
+- Retained the compact red/green hover diff and safe per-hunk rollback behavior.
+
 ## 0.8.0
 
 - Replaced the default per-hunk CodeLens row with clickable inline Keep and Undo pills.
