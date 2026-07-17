@@ -13,6 +13,11 @@ export interface UnifiedDiffHunk {
   lines: string[];
 }
 
+export interface HunkChangedLines {
+  added: string[];
+  removed: string[];
+}
+
 export function parseUnifiedDiffHunks(diff: string): UnifiedDiffHunk[] {
   const lines = diff.split(/\r?\n/);
   const hunks: UnifiedDiffHunk[] = [];
@@ -46,19 +51,32 @@ export function parseUnifiedDiffHunks(diff: string): UnifiedDiffHunk[] {
 
 export function oldTextForHunk(hunk: UnifiedDiffHunk, eol: string): string {
   return hunk.lines
-    .filter((line) => line.startsWith(" ") || (line.startsWith("-") && !line.startsWith("---")))
+    .filter((line) => line.startsWith(" ") || line.startsWith("-"))
     .map((line) => line.slice(1))
     .join(eol);
+}
+
+export function changedLinesForHunk(hunk: UnifiedDiffHunk): HunkChangedLines {
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const line of hunk.lines) {
+    if (line.startsWith("+")) {
+      added.push(line.slice(1));
+    } else if (line.startsWith("-")) {
+      removed.push(line.slice(1));
+    }
+  }
+  return { added, removed };
 }
 
 export function newLineRangesForHunk(hunk: UnifiedDiffHunk): ChangedLineRange[] {
   const touched = new Set<number>();
   let newLine = Math.max(0, hunk.newStart - 1);
   for (const line of hunk.lines) {
-    if (line.startsWith("+") && !line.startsWith("+++")) {
+    if (line.startsWith("+")) {
       touched.add(newLine);
       newLine += 1;
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
+    } else if (line.startsWith("-")) {
       touched.add(Math.max(0, newLine));
     } else if (line.startsWith(" ")) {
       newLine += 1;
@@ -96,10 +114,10 @@ export function parseUnifiedDiffNewLineRanges(diff: string): ChangedLineRange[] 
     if (!insideHunk || line.startsWith("\\ No newline at end of file")) {
       continue;
     }
-    if (line.startsWith("+") && !line.startsWith("+++")) {
+    if (line.startsWith("+")) {
       touched.add(newLine);
       newLine += 1;
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
+    } else if (line.startsWith("-")) {
       // A removed line has no new-side line of its own, so mark the line at
       // the deletion boundary. The editor layer clamps EOF deletions safely.
       touched.add(Math.max(0, newLine));

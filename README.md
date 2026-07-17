@@ -21,9 +21,9 @@ This project does not copy OpenAI's proprietary VS Code extension source, visual
 - Run with `workspace-write` sandboxing and `on-request` approvals by default.
 - Approve or decline command execution, file changes, and extra permission requests.
 - Add the active file or an editor selection to a prompt.
-- Snapshot open files before every turn, highlight Codex-edited lines in the existing editor, and accept or reject individual change blocks with inline CodeLens actions.
+- Snapshot open files before every turn, show expanded red-before/green-after review blocks in the existing editor, and keep or undo individual hunks.
 - Detect terminal-driven edits through the aggregated turn diff and an open-document before/after fallback.
-- Accept or reject the whole active file from its editor-title or context-menu actions.
+- Keep or undo the whole active file from its editor-title or context-menu actions.
 - Review uncommitted changes.
 - Use `/new`, `/stop`, `/status`, `/compact`, `/review`, `/model`, `/init`, and `/help`.
 
@@ -72,7 +72,7 @@ Install the generated `.vsix` using **Extensions: Install from VSIX…**.
 - `codexAgent.reasoningEffort`: optional reasoning effort for turns.
 - `codexAgent.sandbox`: `read-only`, `workspace-write`, or `danger-full-access`.
 - `codexAgent.approvalPolicy`: `on-request`, `untrusted`, or `never`.
-- `codexAgent.inlineReview.enabled`: show editor-native Codex change highlights and Accept/Reject actions.
+- `codexAgent.inlineReview.enabled`: show expanded editor-native Codex change blocks and Keep/Undo actions.
 
 ## Security notes
 
@@ -84,6 +84,6 @@ Install the generated `.vsix` using **Extensions: Install from VSIX…**.
 
 ## Current MVP boundaries
 
-This release implements the core local coding loop, not every surface in OpenAI's evolving first-party extension. Inline review supports per-change and whole-file decisions for files with a safe pre-turn snapshot. Unsaved files and files first discovered after the turn begins may be accept-only to avoid overwriting user work. Cloud tasks, worktree management, realtime voice, MCP elicitation forms, image attachments, plugin management, feedback upload, and enterprise attestation UI are future work. Unsupported app-server requests fail closed.
+This release implements the core local coding loop, not every surface in OpenAI's evolving first-party extension. Inline review uses VS Code's stable review-thread and decoration APIs to show the old and current code in the original editor; Cursor's private editor view-zone implementation is not exposed to regular VS Code extensions. Per-change and whole-file decisions are supported for files with a safe pre-turn snapshot. Unsaved files and files first discovered after the turn begins may be keep-only to avoid overwriting user work. Cloud tasks, worktree management, realtime voice, MCP elicitation forms, image attachments, plugin management, feedback upload, and enterprise attestation UI are future work. Unsupported app-server requests fail closed.
 
 The next production milestone should add protocol-version compatibility tests against pinned Codex CLI releases, queued follow-ups, full MCP elicitation UI, and Windows/WSL runtime handling.

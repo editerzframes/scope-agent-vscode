@@ -2,7 +2,7 @@
   "name": "codex-agent-lab",
   "displayName": "Codex Agent Lab (Unofficial)",
   "description": "A clean-room VS Code client for the documented Codex app-server protocol.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -95,17 +95,27 @@
       },
       {
         "command": "codexAgent.acceptFileChange",
-        "title": "Codex Agent: Accept Edits in This File",
+        "title": "Codex Agent: Keep Edits in This File",
         "icon": "$(check-all)"
       },
       {
         "command": "codexAgent.rejectFileChange",
-        "title": "Codex Agent: Reject Edits in This File",
+        "title": "Codex Agent: Undo Edits in This File",
         "icon": "$(discard)"
       },
       {
         "command": "codexAgent.acceptAllChanges",
-        "title": "Codex Agent: Accept All Pending Edits"
+        "title": "Codex Agent: Keep All Pending Edits"
+      },
+      {
+        "command": "codexAgent.keepReviewThread",
+        "title": "Keep Codex Change",
+        "icon": "$(check)"
+      },
+      {
+        "command": "codexAgent.undoReviewThread",
+        "title": "Undo Codex Change",
+        "icon": "$(discard)"
       },
       {
         "command": "codexAgent.showStatus",
@@ -184,6 +194,18 @@
           "when": "codexAgent.activeFileCanReject",
           "group": "navigation@2"
         }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "codexAgent.keepReviewThread",
+          "when": "commentThread == codexAgent.pendingChange || commentThread == codexAgent.acceptOnlyChange",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codexAgent.undoReviewThread",
+          "when": "commentThread == codexAgent.pendingChange",
+          "group": "navigation@2"
+        }
       ]
     },
     "configuration": {
@@ -237,7 +259,7 @@
         "codexAgent.inlineReview.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Highlight Codex-edited lines in the existing editor and show Accept/Reject CodeLens actions."
+          "description": "Show expanded before/after review blocks in the existing editor with per-change Keep/Undo actions."
         }
       }
     }

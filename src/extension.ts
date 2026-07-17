@@ -93,6 +93,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     await inlineDiff.rejectHunk(uri, hunkId);
   });
+  command("codexAgent.keepReviewThread", (thread?: unknown) => inlineDiff.keepReviewThread(thread));
+  command("codexAgent.undoReviewThread", (thread?: unknown) => inlineDiff.undoReviewThread(thread));
   command("codexAgent.acceptFileChange", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
     if (!target) {

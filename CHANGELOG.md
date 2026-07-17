@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Added expanded inline review blocks to the original editor for every pending diff hunk.
+- Show previous code in red directly beside the green current code, including deletion-only changes.
+- Added native Keep and Undo actions to each inline review block while retaining the safe snapshot checks.
+- Fixed unified-diff handling for source lines that themselves begin with `---` or `+++`.
+
 ## 0.5.0
 
 - Added live changed-file cards directly in the chat, with filenames and added/deleted line counts.

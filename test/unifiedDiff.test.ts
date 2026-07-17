@@ -1,11 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  changedLinesForHunk,
   oldTextForHunk,
   parseUnifiedDiffHunks,
   parseUnifiedDiffNewLineRanges,
   reverseHunkInText,
 } from "../src/unifiedDiff";
+
+test("extracts the before and after lines for an inline review block", () => {
+  const [hunk] = parseUnifiedDiffHunks("@@ -7,2 +7,2 @@\n--- old option\n-before\n+++ new option\n+after");
+  assert.deepEqual(hunk && changedLinesForHunk(hunk), {
+    removed: ["-- old option", "before"],
+    added: ["++ new option", "after"],
+  });
+});
+
+test("reverses source lines that resemble unified-diff file headers", () => {
+  const [hunk] = parseUnifiedDiffHunks("@@ -1,1 +1,1 @@\n---old flag\n+++new flag");
+  assert.equal(hunk && oldTextForHunk(hunk, "\n"), "--old flag");
+  assert.equal(hunk && reverseHunkInText("++new flag\n", hunk, "\n"), "--old flag\n");
+});
 
 test("parses added and replaced lines from multiple unified-diff hunks", () => {
   const ranges = parseUnifiedDiffNewLineRanges([

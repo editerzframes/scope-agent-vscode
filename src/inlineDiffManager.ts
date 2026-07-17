@@ -9,6 +9,7 @@ import {
 } from "./codexService";
 import { parseAggregatedUnifiedDiff, UnifiedFileDiff } from "./turnDiff";
 import {
+  changedLinesForHunk,
   newLineRangesForHunk,
   parseUnifiedDiffHunks,
   reverseHunkInText,
@@ -50,6 +51,9 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   private readonly captureTasks = new Map<string, Promise<void>>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly codeLensEmitter = new vscode.EventEmitter<void>();
+  private readonly reviewThreads = new Map<string, vscode.CommentThread>();
+  private readonly reviewThreadTargets = new WeakMap<vscode.CommentThread, { uri: vscode.Uri; hunkId: string }>();
+  private readonly commentController: vscode.CommentController;
   private reviewPromptTimer: NodeJS.Timeout | undefined;
 
   readonly onDidChangeCodeLenses = this.codeLensEmitter.event;
@@ -62,9 +66,18 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   });
 
+  private readonly deletionBoundaryDecoration = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    borderWidth: "0 0 0 3px",
+    borderStyle: "solid",
+    borderColor: new vscode.ThemeColor("diffEditor.removedLineBackground"),
+    overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
+    overviewRulerLane: vscode.OverviewRulerLane.Right,
+  });
+
   private readonly labelDecoration = vscode.window.createTextEditorDecorationType({
     after: {
-      contentText: "  Codex change — Accept / Reject",
+      contentText: "  Codex change — Keep / Undo",
       color: new vscode.ThemeColor("editorCodeLens.foreground"),
       fontStyle: "italic",
       margin: "0 0 0 1rem",
@@ -91,6 +104,10 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     private readonly service: CodexService,
     private readonly output: vscode.OutputChannel,
   ) {
+    this.commentController = vscode.comments.createCommentController(
+      "codexAgent.inlineReview",
+      "Codex inline changes",
+    );
     this.service.on("filePatch", this.filePatchListener);
     this.service.on("turnPreparing", this.turnPreparingListener);
     this.service.on("turnDiff", this.turnDiffListener);
@@ -102,7 +119,9 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       vscode.workspace.onDidOpenTextDocument(() => this.refreshVisibleEditors()),
       vscode.workspace.onDidChangeTextDocument(() => this.refreshVisibleEditors()),
       this.changeDecoration,
+      this.deletionBoundaryDecoration,
       this.labelDecoration,
+      this.commentController,
       this.codeLensEmitter,
     );
   }
@@ -126,7 +145,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       const anchor = this.hunkAnchor(document, hunk);
       lenses.push(
         new vscode.CodeLens(anchor, {
-          title: "$(check) Accept change",
+          title: "$(check) Keep change",
           tooltip: "Keep this Codex change",
           command: "codexAgent.acceptHunk",
           arguments: [document.uri, hunk.id],
@@ -135,7 +154,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       if (entry.canReject) {
         lenses.push(
           new vscode.CodeLens(anchor, {
-            title: "$(discard) Reject change",
+            title: "$(discard) Undo change",
             tooltip: "Restore this block to its pre-Codex content",
             command: "codexAgent.rejectHunk",
             arguments: [document.uri, hunk.id],
@@ -155,7 +174,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     const picked = await vscode.window.showQuickPick(
       entries.map((entry) => ({
         label: entry.kind.type === "delete" ? `$(trash) ${entry.label}` : `$(edit) ${entry.label}`,
-        description: entry.canReject ? `${entry.hunks.length || 1} change(s) · Accept or reject` : "Accept only",
+        description: entry.canReject ? `${entry.hunks.length || 1} change(s) · Keep or undo` : "Keep only",
         entry,
       })),
       {
@@ -179,11 +198,29 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       await vscode.window.showTextDocument(document, { preview: false });
     } catch (error: unknown) {
       if (isFileNotFound(error)) {
-        vscode.window.showInformationMessage("This file was deleted by the Codex turn. Use Review Pending Edits to restore or accept the deletion.");
+        vscode.window.showInformationMessage("This file was deleted by the Codex turn. Use Review Pending Edits to restore or keep the deletion.");
         return;
       }
       throw error;
     }
+  }
+
+  async keepReviewThread(value: unknown): Promise<void> {
+    const target = this.reviewThreadTarget(value);
+    if (!target) {
+      vscode.window.showInformationMessage("This Codex change is no longer pending.");
+      return;
+    }
+    await this.acceptHunk(target.uri, target.hunkId);
+  }
+
+  async undoReviewThread(value: unknown): Promise<void> {
+    const target = this.reviewThreadTarget(value);
+    if (!target) {
+      vscode.window.showInformationMessage("This Codex change is no longer pending.");
+      return;
+    }
+    await this.rejectHunk(target.uri, target.hunkId);
   }
 
   async acceptHunk(uri: vscode.Uri, hunkId: string): Promise<void> {
@@ -199,7 +236,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     } else {
       this.refreshReviewUi();
     }
-    vscode.window.setStatusBarMessage(`Accepted a Codex change in ${entry.label}`, 3_000);
+    vscode.window.setStatusBarMessage(`Kept a Codex change in ${entry.label}`, 3_000);
   }
 
   async rejectHunk(uri: vscode.Uri, hunkId: string): Promise<void> {
@@ -221,7 +258,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     const current = await this.readCurrentSnapshot(entry.uri, entry.after?.exists === false);
     if (!sameSnapshot(current, entry.after)) {
       vscode.window.showWarningMessage(
-        `${entry.label} changed after Codex finished. Per-change rejection is paused to avoid overwriting newer edits; use Reject File if you intend to restore the full snapshot.`,
+        `${entry.label} changed after Codex finished. Per-change undo is paused to avoid overwriting newer edits; use Undo File if you intend to restore the full snapshot.`,
       );
       return;
     }
@@ -232,7 +269,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     const edit = new vscode.WorkspaceEdit();
     edit.replace(document.uri, range, replacement);
     if (!(await vscode.workspace.applyEdit(edit)) || !(await document.save())) {
-      throw new Error(`VS Code could not reject the change in ${entry.label}.`);
+      throw new Error(`VS Code could not undo the change in ${entry.label}.`);
     }
 
     const delta = hunk.oldCount - hunk.newCount;
@@ -252,7 +289,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         editor.revealRange(next, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       }
     }
-    vscode.window.setStatusBarMessage(`Rejected a Codex change in ${entry.label}`, 3_000);
+    vscode.window.setStatusBarMessage(`Undid a Codex change in ${entry.label}`, 3_000);
   }
 
   async acceptFile(uri: vscode.Uri): Promise<void> {
@@ -262,7 +299,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       return;
     }
     this.clearEntry(entry);
-    vscode.window.setStatusBarMessage(`Accepted Codex changes in ${entry.label}`, 3_000);
+    vscode.window.setStatusBarMessage(`Kept Codex changes in ${entry.label}`, 3_000);
   }
 
   async rejectFile(uri: vscode.Uri): Promise<void> {
@@ -273,7 +310,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     }
     if (!entry.canReject || !entry.original) {
       vscode.window.showWarningMessage(
-        `The pre-edit snapshot for ${entry.label} is unavailable, so this file cannot be safely rejected.`,
+        `The pre-edit snapshot for ${entry.label} is unavailable, so this file cannot be safely undone.`,
       );
       return;
     }
@@ -281,11 +318,11 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     const current = await this.readCurrentSnapshot(entry.uri, entry.after?.exists === false);
     if (!sameSnapshot(current, entry.after)) {
       const choice = await vscode.window.showWarningMessage(
-        `${entry.label} changed again after Codex edited it. Rejecting the file will replace those newer edits.`,
+        `${entry.label} changed again after Codex edited it. Undoing the file will replace those newer edits.`,
         { modal: true },
-        "Reject file anyway",
+        "Undo file anyway",
       );
-      if (choice !== "Reject file anyway") {
+      if (choice !== "Undo file anyway") {
         return;
       }
     }
@@ -296,7 +333,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     if (document) {
       await vscode.window.showTextDocument(document, { preview: false });
     }
-    vscode.window.setStatusBarMessage(`Rejected Codex changes in ${entry.label}`, 3_000);
+    vscode.window.setStatusBarMessage(`Undid Codex changes in ${entry.label}`, 3_000);
   }
 
   acceptAll(): void {
@@ -305,7 +342,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     this.captureTasks.clear();
     this.refreshReviewUi();
     if (accepted > 0) {
-      vscode.window.setStatusBarMessage(`Accepted Codex changes in ${accepted} file${accepted === 1 ? "" : "s"}`, 3_000);
+      vscode.window.setStatusBarMessage(`Kept Codex changes in ${accepted} file${accepted === 1 ? "" : "s"}`, 3_000);
     }
   }
 
@@ -628,7 +665,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     const anchor = new vscode.Range(0, 0, 0, 0);
     const lenses = [
       new vscode.CodeLens(anchor, {
-        title: "$(check) Accept file",
+        title: "$(check) Keep file",
         tooltip: "Keep Codex's edits in this file",
         command: "codexAgent.acceptFileChange",
         arguments: [document.uri],
@@ -637,7 +674,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     if (entry.canReject) {
       lenses.push(
         new vscode.CodeLens(anchor, {
-          title: "$(discard) Reject file",
+          title: "$(discard) Undo file",
           tooltip: "Restore the file to its pre-Codex content",
           command: "codexAgent.rejectFileChange",
           arguments: [document.uri],
@@ -666,6 +703,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   }
 
   private refreshReviewUi(): void {
+    this.syncReviewThreads();
     this.codeLensEmitter.fire();
     this.refreshVisibleEditors();
     this.updateContextKeys();
@@ -676,11 +714,18 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       const entry = this.pending.get(editor.document.uri.toString());
       if (!entry?.applied) {
         editor.setDecorations(this.changeDecoration, []);
+        editor.setDecorations(this.deletionBoundaryDecoration, []);
         editor.setDecorations(this.labelDecoration, []);
         continue;
       }
       const ranges = this.editorRanges(editor.document, entry);
       editor.setDecorations(this.changeDecoration, ranges);
+      editor.setDecorations(
+        this.deletionBoundaryDecoration,
+        entry.hunks
+          .filter((hunk) => changedLinesForHunk(hunk).removed.length > 0)
+          .map((hunk) => this.hunkAnchor(editor.document, hunk)),
+      );
       const labels = entry.hunks.length > 0
         ? entry.hunks.map((hunk) => {
             const line = this.hunkAnchor(editor.document, hunk).start.line;
@@ -690,6 +735,87 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         : ranges.slice(0, 1);
       editor.setDecorations(this.labelDecoration, labels);
     }
+  }
+
+  private syncReviewThreads(): void {
+    const desired = new Set<string>();
+    for (const entry of this.pending.values()) {
+      if (!entry.applied || !entry.after?.exists) {
+        continue;
+      }
+      for (const hunk of entry.hunks) {
+        const key = this.reviewThreadKey(entry.uri, hunk.id);
+        desired.add(key);
+        const range = this.reviewThreadRange(entry, hunk);
+        const comment = this.reviewComment(hunk);
+        let thread = this.reviewThreads.get(key);
+        if (!thread) {
+          thread = this.commentController.createCommentThread(entry.uri, range, [comment]);
+          this.reviewThreads.set(key, thread);
+          this.reviewThreadTargets.set(thread, { uri: entry.uri, hunkId: hunk.id });
+        } else {
+          thread.range = range;
+          thread.comments = [comment];
+        }
+        thread.label = this.reviewThreadLabel(hunk);
+        thread.contextValue = entry.canReject
+          ? "codexAgent.pendingChange"
+          : "codexAgent.acceptOnlyChange";
+        thread.canReply = false;
+        thread.state = vscode.CommentThreadState.Unresolved;
+        thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+      }
+    }
+
+    for (const [key, thread] of this.reviewThreads) {
+      if (!desired.has(key)) {
+        this.reviewThreadTargets.delete(thread);
+        thread.dispose();
+        this.reviewThreads.delete(key);
+      }
+    }
+  }
+
+  private reviewComment(hunk: UnifiedDiffHunk): vscode.Comment {
+    const changed = changedLinesForHunk(hunk);
+    const body = new vscode.MarkdownString();
+    if (changed.removed.length > 0) {
+      body.appendMarkdown("**Previous code**\n\n");
+      body.appendCodeblock(changed.removed.map((line) => `-${line}`).join("\n"), "diff");
+    } else {
+      body.appendMarkdown(
+        `**${changed.added.length} new line${changed.added.length === 1 ? "" : "s"} added below**`,
+      );
+    }
+    return {
+      body,
+      mode: vscode.CommentMode.Preview,
+      author: { name: "Codex" },
+      label: this.reviewThreadLabel(hunk),
+      contextValue: "codexAgent.inlineReviewComment",
+    };
+  }
+
+  private reviewThreadLabel(hunk: UnifiedDiffHunk): string {
+    const changed = changedLinesForHunk(hunk);
+    return `Codex change  +${changed.added.length}  −${changed.removed.length}`;
+  }
+
+  private reviewThreadRange(entry: PendingFileChange, hunk: UnifiedDiffHunk): vscode.Range {
+    const lineCount = Math.max(1, entry.after?.text.split(/\r?\n/).length ?? 1);
+    const changedLine = Math.min(lineCount - 1, Math.max(0, hunk.newStart - 1));
+    const anchorLine = changedLine > 0 ? changedLine - 1 : changedLine;
+    return new vscode.Range(anchorLine, 0, anchorLine, 0);
+  }
+
+  private reviewThreadKey(uri: vscode.Uri, hunkId: string): string {
+    return `${uri.toString()}#${hunkId}`;
+  }
+
+  private reviewThreadTarget(value: unknown): { uri: vscode.Uri; hunkId: string } | undefined {
+    return typeof value === "object" && value !== null
+      ? this.reviewThreadTargets.get(value as vscode.CommentThread)
+      : undefined;
   }
 
   private updateContextKeys(): void {
@@ -715,10 +841,10 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       void vscode.window
         .showInformationMessage(
           activeHasChange
-            ? "Codex changes are ready in the open editor. Use the Accept/Reject actions above each block or in the editor title."
+            ? "Codex changes are ready in the open editor. Use the Keep/Undo actions on each block or in the editor title."
             : `Codex changed ${count} file${count === 1 ? "" : "s"}. Review the edits in the original editor?`,
           activeHasChange ? "Go to first change" : "Review inline",
-          "Accept all",
+          "Keep all",
         )
         .then((choice) => {
           if (choice === "Review inline") {
@@ -729,7 +855,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
             if (range) {
               vscode.window.activeTextEditor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
             }
-          } else if (choice === "Accept all") {
+          } else if (choice === "Keep all") {
             this.acceptAll();
           }
         });
