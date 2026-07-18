@@ -3,18 +3,21 @@ import { CodexService } from "./codexService";
 import { CodexViewProvider } from "./codexViewProvider";
 import { InlineDiffManager } from "./inlineDiffManager";
 import { rpcErrorMessage } from "./protocol";
+import { SelectionChatCodeLensProvider } from "./selectionChatCodeLensProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("Codex Agent Lab", { log: true });
   const service = new CodexService(context, output);
   const provider = new CodexViewProvider(context.extensionUri, service);
   const inlineDiff = new InlineDiffManager(service, output);
+  const selectionChatCodeLens = new SelectionChatCodeLensProvider(service);
 
   context.subscriptions.push(
     output,
     service,
     provider,
     inlineDiff,
+    selectionChatCodeLens,
     vscode.window.registerWebviewViewProvider(CodexViewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -38,13 +41,23 @@ export function activate(context: vscode.ExtensionContext): void {
     await provider.reveal();
     await service.newThread();
   });
-  command("codexAgent.addSelection", async () => {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      throw new Error("Open a text editor and select code first.");
+  command("codexAgent.addSelection", async (uri?: unknown, range?: unknown) => {
+    let document: vscode.TextDocument;
+    let selection: vscode.Range;
+    if (uri instanceof vscode.Uri && range instanceof vscode.Range) {
+      document = await vscode.workspace.openTextDocument(uri);
+      selection = range;
+    } else {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        throw new Error("Open a text editor and select code first.");
+      }
+      document = editor.document;
+      selection = editor.selection;
     }
-    service.addSelectionContext(editor);
+    const added = service.addSelectionContext(document, selection);
     await provider.reveal();
+    vscode.window.setStatusBarMessage(added ? "Added selected code to Codex chat" : "Selected code is already in Codex chat", 3_000);
   });
   command("codexAgent.addFile", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;

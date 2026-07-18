@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- Added an editor-native Add to Chat action that appears above selected code.
+- Captured the exact selected range when the action is clicked, even as focus moves to the chat sidebar.
+- Prevented the same selected-code attachment from being added to the composer more than once.
+- Kept Add to Chat in the editor context menu as a fallback when CodeLens is disabled.
+
 ## 0.9.0
 
 - Moved each hunk's review controls onto a dedicated compact row above the changed block.

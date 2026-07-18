@@ -2,7 +2,7 @@
   "name": "codex-agent-lab",
   "displayName": "Codex Agent Lab (Unofficial)",
   "description": "A clean-room VS Code client for the documented Codex app-server protocol.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -238,6 +238,11 @@
           "type": "boolean",
           "default": true,
           "description": "Highlight Codex changes in the existing editor, show compact per-hunk Undo/Keep actions above each changed block, and reveal the before/after diff on hover."
+        },
+        "codexAgent.selectionAction.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an Add to Chat action above selected code in the active editor."
         }
       }
     }

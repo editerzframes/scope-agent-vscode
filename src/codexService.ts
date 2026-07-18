@@ -567,21 +567,35 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     this.emitState();
   }
 
-  addSelectionContext(editor: vscode.TextEditor): void {
-    if (editor.selection.isEmpty) {
+  addSelectionContext(document: vscode.TextDocument, selection: vscode.Range): boolean {
+    if (selection.isEmpty) {
       throw new Error("Select some code before adding it to the chat.");
     }
-    const startLine = editor.selection.start.line + 1;
-    const endLine = editor.selection.end.line + 1;
+    const startLine = selection.start.line + 1;
+    const endLine = selection.end.line + 1;
+    const sourcePath = document.uri.fsPath || document.uri.toString();
+    const sourceRange = `lines ${startLine}-${endLine}`;
+    const sourceText = document.getText(selection);
+    const existing = this.contexts.some(
+      (context) =>
+        context.kind === "selection" &&
+        context.path === sourcePath &&
+        context.range === sourceRange &&
+        context.text === sourceText,
+    );
+    if (existing) {
+      return false;
+    }
     this.contexts.push({
       id: randomUUID(),
       kind: "selection",
-      label: `${basename(editor.document.uri.fsPath)}:${startLine}-${endLine}`,
-      path: editor.document.uri.fsPath,
-      range: `lines ${startLine}-${endLine}`,
-      text: editor.document.getText(editor.selection),
+      label: `${basename(document.fileName)}:${startLine}-${endLine}`,
+      path: sourcePath,
+      range: sourceRange,
+      text: sourceText,
     });
     this.emitState();
+    return true;
   }
 
   removeContext(id: string): void {
