@@ -1,22 +1,45 @@
 {
-  "name": "codex-agent-lab",
-  "displayName": "Codex Agent Lab (Unofficial)",
-  "description": "A clean-room VS Code client for the documented Codex app-server protocol.",
-  "version": "0.10.0",
-  "publisher": "local",
+  "name": "scope-agent",
+  "displayName": "SCOPE – AI Coding Agent",
+  "description": "An unofficial VS Code coding-agent workbench powered by the documented OpenAI Codex app-server.",
+  "version": "1.0.0",
+  "publisher": "PuneetGarg",
+  "author": {
+    "name": "Puneet Garg"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/editerzframes/scope-agent-vscode.git"
+  },
+  "homepage": "https://github.com/editerzframes/scope-agent-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/editerzframes/scope-agent-vscode/issues"
+  },
+  "icon": "media/marketplace-icon.png",
+  "galleryBanner": {
+    "color": "#111827",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "qna": "marketplace",
   "engines": {
     "vscode": "^1.100.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Machine Learning"
   ],
   "keywords": [
     "codex",
     "agent",
     "openai",
     "ai",
-    "coding"
+    "coding",
+    "coding-agent",
+    "code-review",
+    "inline-diff",
+    "developer-tools"
   ],
   "activationEvents": [
     "onView:codexAgent.chat",
@@ -29,98 +52,99 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Codex Agent Lab can run commands and edit files, so the workspace must be trusted."
+      "description": "SCOPE can run commands and edit files, so the workspace must be trusted."
     },
     "virtualWorkspaces": {
       "supported": false
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "check": "tsc --noEmit",
     "build": "npm run check && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "package": "npm run build && vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies"
   },
   "contributes": {
     "commands": [
       {
         "command": "codexAgent.open",
-        "title": "Codex Agent: Open Sidebar",
+        "title": "SCOPE: Open Sidebar",
         "icon": "$(sparkle)"
       },
       {
         "command": "codexAgent.newChat",
-        "title": "Codex Agent: New Chat",
+        "title": "SCOPE: New Chat",
         "icon": "$(add)"
       },
       {
         "command": "codexAgent.showHistory",
-        "title": "Codex Agent: Previous Chats",
+        "title": "SCOPE: Previous Chats",
         "icon": "$(history)"
       },
       {
         "command": "codexAgent.openCommandMenu",
-        "title": "Codex Agent: Open Command Menu",
+        "title": "SCOPE: Open Command Menu",
         "icon": "$(terminal)"
       },
       {
         "command": "codexAgent.addSelection",
-        "title": "Codex Agent: Add Selection to Chat"
+        "title": "SCOPE: Add Selection to Chat"
       },
       {
         "command": "codexAgent.addFile",
-        "title": "Codex Agent: Add Active File to Chat"
+        "title": "SCOPE: Add Active File to Chat"
       },
       {
         "command": "codexAgent.login",
-        "title": "Codex Agent: Sign In"
+        "title": "SCOPE: Sign In"
       },
       {
         "command": "codexAgent.logout",
-        "title": "Codex Agent: Sign Out"
+        "title": "SCOPE: Sign Out"
       },
       {
         "command": "codexAgent.stop",
-        "title": "Codex Agent: Stop Current Turn",
+        "title": "SCOPE: Stop Current Turn",
         "icon": "$(debug-stop)"
       },
       {
         "command": "codexAgent.reviewChanges",
-        "title": "Codex Agent: Review Uncommitted Changes"
+        "title": "SCOPE: Review Uncommitted Changes"
       },
       {
         "command": "codexAgent.reviewPendingChanges",
-        "title": "Codex Agent: Review Pending Edits Inline"
+        "title": "SCOPE: Review Pending Edits Inline"
       },
       {
         "command": "codexAgent.acceptFileChange",
-        "title": "Codex Agent: Keep Edits in This File",
+        "title": "SCOPE: Keep Edits in This File",
         "icon": "$(check-all)"
       },
       {
         "command": "codexAgent.rejectFileChange",
-        "title": "Codex Agent: Undo Edits in This File",
+        "title": "SCOPE: Undo Edits in This File",
         "icon": "$(discard)"
       },
       {
         "command": "codexAgent.acceptAllChanges",
-        "title": "Codex Agent: Keep All Pending Edits"
+        "title": "SCOPE: Keep All Pending Edits"
       },
       {
         "command": "codexAgent.showStatus",
-        "title": "Codex Agent: Show Account and Usage"
+        "title": "SCOPE: Show Account and Usage"
       },
       {
         "command": "codexAgent.openSettings",
-        "title": "Codex Agent: Open Settings"
+        "title": "SCOPE: Open Settings"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "codexAgent",
-          "title": "Codex Agent Lab",
+          "title": "SCOPE",
           "icon": "media/codex-agent.svg"
         }
       ]
@@ -187,7 +211,7 @@
       ]
     },
     "configuration": {
-      "title": "Codex Agent Lab",
+      "title": "SCOPE",
       "properties": {
         "codexAgent.cliExecutable": {
           "type": "string",

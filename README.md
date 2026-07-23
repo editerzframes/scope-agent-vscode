@@ -1,69 +1,61 @@
-# Codex Agent Lab for VS Code
+# SCOPE – AI Coding Agent for VS Code
 
-Codex Agent Lab is an unofficial, clean-room VS Code extension that connects to the documented local Codex app-server protocol. It is a functional foundation for a Codex-style coding agent: users can sign in, send workspace-aware prompts, stream progress, approve elevated actions, and let Codex make real code changes.
+SCOPE is an unofficial VS Code coding-agent workbench powered by OpenAI's documented local Codex app-server. It brings workspace-aware chat, streamed agent progress, approvals, file-change cards, and editor-native change review into one sidebar.
 
-This project does not copy OpenAI's proprietary VS Code extension source, visual identity, telemetry identity, or marketplace branding. It identifies itself to app-server as `codex_agent_lab_vscode`.
+> **Independent project:** SCOPE is not affiliated with, endorsed by, sponsored by, or supported by OpenAI. OpenAI, ChatGPT, and Codex are trademarks of OpenAI, LLC. SCOPE does not copy the proprietary source, visual identity, telemetry identity, or Marketplace branding of OpenAI's extension.
 
-## What works
+## Highlights
 
-- Sign in with ChatGPT in the browser and use the account's Codex entitlements and limits.
+- Sign in with ChatGPT and use the Codex access included with an eligible plan.
 - Sign in with an OpenAI API key for usage-based Platform billing.
-- Discover the models available to the signed-in account.
-- Show primary and secondary Codex usage windows when provided by the account.
-- Start, resume, steer, interrupt, and compact local Codex threads.
-- Open a workspace-scoped Previous Chats drawer and resume an earlier conversation after starting a new one.
-- Render a submitted prompt immediately while the local Codex runtime starts the turn.
-- Stream assistant output and show command, file, tool, search, and agent activity.
-- Show changed files directly in chat with live added/deleted counts and compact inline patch previews.
-- Open a changed-file card in the original editor to review its pending inline changes.
-- Keep a persistent live task card with the current step, elapsed time, quiet-period heartbeat, and explicit finished/failed/stopped state.
-- Show running work in the VS Code status bar and Activity Bar badge, with completion notification when the sidebar is hidden.
+- Discover available models and show account usage windows when the runtime provides them.
+- Start, resume, steer, interrupt, and compact local coding-agent conversations.
+- Browse workspace-scoped previous chats.
+- Stream assistant messages plus command, file, tool, search, and agent activity.
+- See changed-file cards with added/deleted counts and compact patch previews.
+- Review edits in the original editor with per-hunk **Undo** and **Keep** actions.
+- Hover highlighted changes to compare the previous and current code.
+- Select code to reveal an editor-native **Add to Chat** action.
+- Approve or decline command execution, file changes, and permission requests.
 - Run with `workspace-write` sandboxing and `on-request` approvals by default.
-- Approve or decline command execution, file changes, and extra permission requests.
-- Select code to reveal an editor-native Add to Chat action, or add the active file from the composer.
-- Snapshot open files before every turn, highlight changed hunks in the existing editor, and show compact Undo/Keep actions above every hunk with a red-before/green-after hover preview.
-- Detect terminal-driven edits through the aggregated turn diff and an open-document before/after fallback.
-- Keep or undo the whole active file from its editor-title or context-menu actions.
-- Review uncommitted changes.
-- Use `/new`, `/stop`, `/status`, `/compact`, `/review`, `/model`, `/init`, and `/help`.
 
-## Architecture
+## Requirements
 
-The extension spawns `codex app-server --listen stdio://` locally and exchanges newline-delimited JSON-RPC messages with it. Codex owns authentication state, configuration, thread persistence, account limits, sandboxing, model access, and agent execution. The extension owns only the VS Code user experience and does not store account credentials.
+- Visual Studio Code 1.100 or newer.
+- A trusted local folder open in VS Code.
+- A current Codex CLI available as `codex`, or its absolute path configured in `codexAgent.cliExecutable`.
+
+Install the Codex CLI:
+
+```bash
+npm install --global @openai/codex
+```
+
+SCOPE also detects the Codex executable bundled with the ChatGPT macOS application.
+
+## Getting started
+
+1. Install SCOPE from the Visual Studio Marketplace or from a release VSIX.
+2. Open a trusted local project folder.
+3. Select **SCOPE** in the Activity Bar.
+4. Sign in with ChatGPT or an OpenAI API key.
+5. Enter a prompt describing the change you want.
+6. Review the resulting edits in chat and in the original editor.
+
+Useful slash commands include `/new`, `/stop`, `/status`, `/compact`, `/review`, `/model`, `/init`, and `/help`.
+
+## How it works
+
+SCOPE starts `codex app-server --listen stdio://` locally and communicates with it using newline-delimited JSON-RPC. The Codex runtime owns authentication, configuration, thread persistence, account limits, sandboxing, model access, and agent execution. SCOPE owns the VS Code interface.
+
+The app-server connection stays on local stdio. SCOPE does not expose it over a network port.
 
 Official references:
 
 - [Codex app-server](https://developers.openai.com/codex/app-server)
 - [Codex authentication](https://developers.openai.com/codex/auth)
-- [Codex IDE extension](https://developers.openai.com/codex/ide)
-- [Codex open-source repository](https://github.com/openai/codex)
-
-## Prerequisites
-
-- VS Code 1.100 or newer.
-- Node.js 20 or newer for development.
-- A current Codex CLI available as `codex`, or an explicit path in `codexAgent.cliExecutable`.
-- A trusted local folder open in VS Code.
-
-The extension also checks the Codex binary bundled with the ChatGPT macOS app at `/Applications/ChatGPT.app/Contents/Resources/codex`.
-
-## Run in development
-
-```bash
-npm install
-npm run test
-npm run build
-```
-
-Open this folder in VS Code and press `F5`. In the Extension Development Host, open a trusted code folder and select **Codex Agent Lab** in the Activity Bar.
-
-## Package a VSIX
-
-```bash
-npm run package
-```
-
-Install the generated `.vsix` using **Extensions: Install from VSIX…**.
+- [Codex CLI](https://developers.openai.com/codex/cli)
+- [Open-source Codex repository](https://github.com/openai/codex)
 
 ## Settings
 
@@ -72,19 +64,40 @@ Install the generated `.vsix` using **Extensions: Install from VSIX…**.
 - `codexAgent.reasoningEffort`: optional reasoning effort for turns.
 - `codexAgent.sandbox`: `read-only`, `workspace-write`, or `danger-full-access`.
 - `codexAgent.approvalPolicy`: `on-request`, `untrusted`, or `never`.
-- `codexAgent.inlineReview.enabled`: highlight editor-native Codex changes, show compact Undo/Keep actions above every hunk, and display the before/after diff on hover.
-- `codexAgent.selectionAction.enabled`: show an Add to Chat action above selected code in the active editor.
+- `codexAgent.inlineReview.enabled`: show editor-native review highlights, actions, and hover diffs.
+- `codexAgent.selectionAction.enabled`: show **Add to Chat** above selected code.
 
-## Security notes
+The `codexAgent.*` setting prefix is retained for compatibility with earlier local builds.
 
-- The default sandbox is `workspace-write`; the agent can change files in the active workspace.
-- Elevated commands and additional permissions are presented as modal VS Code approvals.
-- API keys are accepted through a password input and passed directly to the local Codex process. The extension does not write them to VS Code storage.
-- Do not expose app-server over a public network. This implementation uses local stdio only.
-- `danger-full-access` and `never` approvals are explicit opt-in settings.
+## Data and privacy
 
-## Current MVP boundaries
+SCOPE does not include extension telemetry and does not operate a separate backend. Prompts, selected code, files, and tool results may be processed by OpenAI through the local Codex runtime according to the account and authentication method you choose. The runtime manages credentials and conversation storage.
 
-This release implements the core local coding loop, not every surface in OpenAI's evolving first-party extension. Compact inline review and the selected-code action use VS Code's stable decoration, hover, and CodeLens APIs in the original editor; Cursor's private floating selection toolbar and editor view-zone implementations are not exposed to regular VS Code extensions. Per-change and whole-file decisions are supported for files with a safe pre-turn snapshot. Unsaved files and files first discovered after the turn begins may be keep-only to avoid overwriting user work. Cloud tasks, worktree management, realtime voice, MCP elicitation forms, image attachments, plugin management, feedback upload, and enterprise attestation UI are future work. Unsupported app-server requests fail closed.
+Read [PRIVACY.md](PRIVACY.md) for the complete data-flow summary.
 
-The next production milestone should add protocol-version compatibility tests against pinned Codex CLI releases, queued follow-ups, full MCP elicitation UI, and Windows/WSL runtime handling.
+## Security
+
+Coding agents can execute commands and change files. SCOPE requires a trusted workspace, defaults to workspace-scoped filesystem access, and displays approval requests for elevated actions. Review every proposed command and change before approving it.
+
+Read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+
+## Development
+
+```bash
+npm install
+npm test
+npm run build
+npm run package
+```
+
+Open this folder in VS Code and press `F5` to launch an Extension Development Host.
+
+## Current boundaries
+
+SCOPE implements the core local coding loop but not every feature in OpenAI's first-party surfaces. Editor review uses stable VS Code decoration, hover, and CodeLens APIs; third-party extensions cannot reproduce private Cursor or first-party editor view-zone implementations exactly.
+
+Unsaved files and files discovered only after a turn begins may be keep-only to avoid overwriting user work. Cloud tasks, worktree management, voice, image attachments, plugin management, and enterprise attestation UI are outside this v1 release.
+
+## License and support
+
+SCOPE is released under the [MIT License](LICENSE). See [SUPPORT.md](SUPPORT.md) for troubleshooting and support channels.

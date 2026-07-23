@@ -98,9 +98,9 @@ export class CodexAppServer extends EventEmitter implements vscode.Disposable {
         "initialize",
         {
           clientInfo: {
-            name: "codex_agent_lab_vscode",
-            title: "Codex Agent Lab for VS Code",
-            version: "0.10.0",
+            name: "scope_agent_vscode",
+            title: "SCOPE – AI Coding Agent",
+            version: "1.0.0",
           },
           capabilities: {
             experimentalApi: false,

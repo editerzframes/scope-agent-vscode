@@ -45,7 +45,7 @@ export class SelectionChatCodeLensProvider implements vscode.CodeLensProvider, v
     return [
       new vscode.CodeLens(anchor, {
         title: "$(comment-discussion) Add to Chat",
-        tooltip: "Attach this selected code to Codex Agent Lab",
+        tooltip: "Attach this selected code to SCOPE",
         command: "codexAgent.addSelection",
         arguments: [document.uri, selection],
       }),

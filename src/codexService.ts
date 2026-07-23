@@ -439,7 +439,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       approvalPolicy: this.approvalPolicy,
       sandbox: this.sandbox,
       sessionStartSource: "clear",
-      threadSource: "codex_agent_lab_vscode",
+      threadSource: "scope_agent_vscode",
     });
     this.threadId = response.thread.id;
     await this.context.workspaceState.update(LAST_THREAD_KEY, this.threadId);

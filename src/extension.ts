@@ -6,7 +6,7 @@ import { rpcErrorMessage } from "./protocol";
 import { SelectionChatCodeLensProvider } from "./selectionChatCodeLensProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("Codex Agent Lab", { log: true });
+  const output = vscode.window.createOutputChannel("SCOPE", { log: true });
   const service = new CodexService(context, output);
   const provider = new CodexViewProvider(context.extensionUri, service);
   const inlineDiff = new InlineDiffManager(service, output);
@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
         try {
           await action(...args);
         } catch (error: unknown) {
-          vscode.window.showErrorMessage(`Codex Agent Lab: ${rpcErrorMessage(error)}`);
+          vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
         }
       }),
     );
@@ -57,7 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const added = service.addSelectionContext(document, selection);
     await provider.reveal();
-    vscode.window.setStatusBarMessage(added ? "Added selected code to Codex chat" : "Selected code is already in Codex chat", 3_000);
+    vscode.window.setStatusBarMessage(added ? "Added selected code to SCOPE" : "Selected code is already attached to SCOPE", 3_000);
   });
   command("codexAgent.addFile", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
@@ -126,7 +126,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showInformationMessage(service.statusSummary());
   });
   command("codexAgent.openSettings", async () => {
-    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:local.codex-agent-lab");
+    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:PuneetGarg.scope-agent");
   });
   command("codexAgent.openCommandMenu", async () => {
     const state = service.state;
@@ -157,7 +157,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const picked = await vscode.window.showQuickPick(items, {
-      title: "Codex Agent commands",
+      title: "SCOPE commands",
       placeHolder: "Choose an action",
     });
     switch (picked?.action) {

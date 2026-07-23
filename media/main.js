@@ -140,7 +140,7 @@
     } else if (["failed", "interrupted"].includes(state.turnProgress?.status)) {
       prompt.placeholder = "Task stopped — revise or try again…";
     } else {
-      prompt.placeholder = "Ask Codex to change your code…";
+      prompt.placeholder = "Ask SCOPE to change your code…";
     }
   }
 
@@ -238,7 +238,7 @@
 
       const role = document.createElement("div");
       role.className = "message-role";
-      role.textContent = message.role === "assistant" ? "Codex" : message.role === "user" ? "You" : "Status";
+      role.textContent = message.role === "assistant" ? "SCOPE" : message.role === "user" ? "You" : "Status";
 
       const body = document.createElement("div");
       body.className = "message-body";
@@ -441,8 +441,8 @@
       return;
     }
 
-    runStatusLabel.textContent = progress.label || (running ? "Codex is working" : "Task finished");
-    runStatusDetail.textContent = progress.detail || (running ? "The task is still running." : "Codex finished the task.");
+    runStatusLabel.textContent = progress.label || (running ? "SCOPE is working" : "Task finished");
+    runStatusDetail.textContent = progress.detail || (running ? "The task is still running." : "SCOPE finished the task.");
     runStatusIcon.textContent = running
       ? ""
       : progress.status === "completed"
@@ -460,7 +460,7 @@
       if (silentMs >= 15_000) {
         runStatusHeartbeat.textContent = `Still working · no new event for ${formatDuration(silentMs)}`;
       } else {
-        runStatusHeartbeat.textContent = "Live · waiting for the next Codex event";
+        runStatusHeartbeat.textContent = "Live · waiting for the next SCOPE event";
       }
     } else {
       runStatusHeartbeat.textContent = progress.status === "completed"
@@ -516,7 +516,7 @@
     state.turnProgress = {
       status: "running",
       label: "Sending your request",
-      detail: "Starting a Codex task in this workspace.",
+      detail: "Starting a SCOPE task in this workspace.",
       startedAtMs: now,
       lastProgressAtMs: now,
       completedAtMs: null,

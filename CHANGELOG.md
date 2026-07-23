@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0
+
+- Renamed the public extension to SCOPE – AI Coding Agent.
+- Added the permanent `PuneetGarg.scope-agent` Marketplace identity.
+- Added public privacy, security, support, and contribution documentation.
+- Added a reproducible pre-publish build and GitHub Actions verification workflow.
+- Promoted the tested local coding, streaming, chat history, changed-file cards, inline review, and selected-code workflows to the v1 release.
+
 ## 0.10.0
 
 - Added an editor-native Add to Chat action that appears above selected code.

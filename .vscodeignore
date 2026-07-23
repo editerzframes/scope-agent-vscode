@@ -1,5 +1,6 @@
 .gitignore
 .vscode/**
+.github/**
 esbuild.mjs
 src/**
 test/**
@@ -7,3 +8,4 @@ tsconfig.json
 node_modules/**
 !node_modules/.bin/**
 **/*.map
+CONTRIBUTING.md

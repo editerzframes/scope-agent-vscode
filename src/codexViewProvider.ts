@@ -28,7 +28,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     private readonly service: CodexService,
   ) {
     this.statusBar.command = "codexAgent.open";
-    this.statusBar.name = "Codex Agent task status";
+    this.statusBar.name = "SCOPE task status";
     this.service.on("state", this.stateListener);
     this.service.on("delta", this.deltaListener);
     this.service.on("progress", this.progressListener);
@@ -44,7 +44,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     view.webview.html = this.getHtml(view.webview);
     view.webview.onDidReceiveMessage((message: unknown) => void this.handleMessage(message));
     void this.service.initialize().catch((error: unknown) => {
-      vscode.window.showErrorMessage(`Codex Agent Lab: ${rpcErrorMessage(error)}`);
+      vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
     });
   }
 
@@ -53,7 +53,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     const running = progress.status === "running";
     if (this.view) {
       this.view.badge = running
-        ? { value: 1, tooltip: `Codex is working: ${progress.label}` }
+        ? { value: 1, tooltip: `SCOPE is working: ${progress.label}` }
         : undefined;
     }
 
@@ -62,20 +62,20 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         clearTimeout(this.completionTimer);
         this.completionTimer = undefined;
       }
-      this.statusBar.text = `$(sync~spin) Codex: ${shorten(progress.label, 38)}`;
-      this.statusBar.tooltip = `${progress.detail}\nClick to open Codex Agent Lab.`;
+      this.statusBar.text = `$(sync~spin) SCOPE: ${shorten(progress.label, 38)}`;
+      this.statusBar.tooltip = `${progress.detail}\nClick to open SCOPE.`;
       this.statusBar.show();
     } else if (this.wasRunning) {
       const succeeded = progress.status === "completed";
-      this.statusBar.text = succeeded ? "$(check) Codex: Task finished" : "$(circle-slash) Codex: Task stopped";
-      this.statusBar.tooltip = `${progress.label}: ${progress.detail}\nClick to open Codex Agent Lab.`;
+      this.statusBar.text = succeeded ? "$(check) SCOPE: Task finished" : "$(circle-slash) SCOPE: Task stopped";
+      this.statusBar.tooltip = `${progress.label}: ${progress.detail}\nClick to open SCOPE.`;
       this.statusBar.show();
       this.completionTimer = setTimeout(() => this.statusBar.hide(), 10_000);
 
       if (!this.view?.visible) {
-        const message = succeeded ? "Codex finished the task." : `Codex stopped: ${progress.label}.`;
-        void vscode.window.showInformationMessage(message, "Open Codex").then((choice) => {
-          if (choice === "Open Codex") {
+        const message = succeeded ? "SCOPE finished the task." : `SCOPE stopped: ${progress.label}.`;
+        void vscode.window.showInformationMessage(message, "Open SCOPE").then((choice) => {
+          if (choice === "Open SCOPE") {
             void this.reveal();
           }
         });
@@ -229,7 +229,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           break;
       }
     } catch (error: unknown) {
-      vscode.window.showErrorMessage(`Codex Agent Lab: ${rpcErrorMessage(error)}`);
+      vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
       await this.view?.webview.postMessage({ type: "actionError", message: rpcErrorMessage(error) });
     }
   }
@@ -279,7 +279,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';" />
     <link rel="stylesheet" href="${styleUri}" />
-    <title>Codex Agent Lab</title>
+    <title>SCOPE – AI Coding Agent</title>
   </head>
   <body>
     <main id="root" aria-live="polite">
@@ -290,11 +290,11 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
 
       <section id="signed-out" class="centered hidden">
         <div class="brand-mark" aria-hidden="true">⌁</div>
-        <h1>Codex Agent Lab</h1>
-        <p class="muted">Run a local Codex agent against the folder open in VS Code.</p>
+        <h1>SCOPE</h1>
+        <p class="muted">Run a local AI coding agent against the folder open in VS Code.</p>
         <button id="login-chatgpt" class="primary wide">Sign in with ChatGPT</button>
         <button id="login-api-key" class="secondary wide">Use an API key</button>
-        <p class="fine-print">Unofficial clean-room client. Authentication is handled by the local Codex runtime.</p>
+        <p class="fine-print">Unofficial client powered by the documented Codex app-server. Authentication is handled by the local Codex runtime.</p>
       </section>
 
       <section id="app" class="app hidden">
@@ -338,13 +338,13 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           </div>
         </section>
 
-        <section id="transcript" class="transcript" aria-label="Codex conversation"></section>
+        <section id="transcript" class="transcript" aria-label="SCOPE conversation"></section>
         <section id="activities" class="activities hidden" aria-label="Agent activity"></section>
         <section id="run-status" class="run-status hidden" role="status" aria-live="polite">
           <div class="run-status-main">
             <span id="run-status-icon" class="run-status-icon" aria-hidden="true"></span>
             <div class="run-status-copy">
-              <strong id="run-status-label">Codex is working</strong>
+              <strong id="run-status-label">SCOPE is working</strong>
               <span id="run-status-detail">The task is still running.</span>
             </div>
             <time id="run-status-time">0:00</time>
@@ -356,7 +356,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         <footer class="composer-shell">
           <div id="contexts" class="contexts hidden"></div>
           <div class="composer">
-            <textarea id="prompt" rows="1" placeholder="Ask Codex to change your code…" aria-label="Prompt"></textarea>
+            <textarea id="prompt" rows="1" placeholder="Ask SCOPE to change your code…" aria-label="Prompt"></textarea>
             <div class="composer-toolbar">
               <div class="composer-left">
                 <button id="add-file" class="tool-button" title="Add active file">＋ File</button>

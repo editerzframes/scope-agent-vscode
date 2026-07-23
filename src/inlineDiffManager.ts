@@ -798,7 +798,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
 
   private logError(stage: string, error: unknown): void {
     this.output.appendLine(`Inline review could not process the ${stage}: ${errorMessage(error)}`);
-    vscode.window.showWarningMessage(`Codex inline review could not process a ${stage}. See the Codex Agent Lab output for details.`);
+    vscode.window.showWarningMessage(`SCOPE inline review could not process a ${stage}. See the SCOPE output for details.`);
   }
 
   dispose(): void {
