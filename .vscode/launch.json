@@ -2,11 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run SCOPE",
+      "name": "Run Puneet 3.0",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension=PuneetGarg.scope-agent"
       ],
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js"

@@ -2,13 +2,13 @@
 
 ## Supported version
 
-Security fixes are provided for the latest published SCOPE release.
+Security fixes are developed against the current local Puneet 3.0 branch.
 
 ## Reporting a vulnerability
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository's private GitHub Security Advisory form after the public repository is available, and include:
+Keep suspected vulnerabilities private and record them only in an appropriately protected local channel. Include:
 
-- the affected SCOPE version;
+- the affected Puneet 3.0 version;
 - reproduction steps;
 - the security impact;
 - relevant logs with credentials, tokens, personal data, and proprietary source removed;
@@ -18,7 +18,7 @@ Please allow reasonable time for validation and remediation before public disclo
 
 ## Security model
 
-SCOPE can invoke a local coding agent that reads files, runs commands, and changes the active workspace. Its main safeguards are:
+Puneet 3.0 can invoke a local coding agent that reads files, runs commands, and changes the active workspace. Its main safeguards are:
 
 - Visual Studio Code Workspace Trust;
 - Codex sandbox policies;

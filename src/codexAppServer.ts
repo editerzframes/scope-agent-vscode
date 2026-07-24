@@ -89,7 +89,7 @@ export class CodexAppServer extends EventEmitter implements vscode.Disposable {
 
     if (!this.child) {
       throw new Error(
-        `Could not start the Codex CLI. Install Codex or set codexAgent.cliExecutable. ${lastError?.message ?? ""}`.trim(),
+        `Could not start the Codex CLI. Install Codex or set puneet2.cliExecutable. ${lastError?.message ?? ""}`.trim(),
       );
     }
 
@@ -98,12 +98,12 @@ export class CodexAppServer extends EventEmitter implements vscode.Disposable {
         "initialize",
         {
           clientInfo: {
-            name: "scope_agent_vscode",
-            title: "SCOPE – AI Coding Agent",
-            version: "1.0.0",
+            name: "puneet2_vscode",
+            title: "Puneet 3.0",
+            version: "3.6.0",
           },
           capabilities: {
-            experimentalApi: false,
+            experimentalApi: true,
           },
         },
         30_000,
@@ -119,7 +119,7 @@ export class CodexAppServer extends EventEmitter implements vscode.Disposable {
 
   private getExecutableCandidates(): string[] {
     const configured = vscode.workspace
-      .getConfiguration("codexAgent")
+      .getConfiguration("puneet2")
       .get<string>("cliExecutable", "")
       .trim();
     if (configured) {

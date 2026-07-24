@@ -1,49 +1,21 @@
 {
-  "name": "scope-agent",
-  "displayName": "SCOPE – AI Coding Agent",
-  "description": "An unofficial VS Code coding-agent workbench powered by the documented OpenAI Codex app-server.",
-  "version": "1.0.0",
-  "publisher": "PuneetGarg",
+  "name": "puneet-2",
+  "displayName": "Puneet 3.0",
+  "description": "A local-only VS Code coding-agent workbench powered by the documented OpenAI Codex app-server.",
+  "version": "3.6.0",
+  "publisher": "local",
   "author": {
     "name": "Puneet Garg"
   },
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/editerzframes/scope-agent-vscode.git"
-  },
-  "homepage": "https://github.com/editerzframes/scope-agent-vscode#readme",
-  "bugs": {
-    "url": "https://github.com/editerzframes/scope-agent-vscode/issues"
-  },
-  "icon": "media/marketplace-icon.png",
-  "galleryBanner": {
-    "color": "#111827",
-    "theme": "dark"
-  },
-  "pricing": "Free",
-  "qna": "marketplace",
+  "icon": "media/puneet-2-icon.png",
   "engines": {
     "vscode": "^1.100.0"
   },
-  "categories": [
-    "Other",
-    "Machine Learning"
-  ],
-  "keywords": [
-    "codex",
-    "agent",
-    "openai",
-    "ai",
-    "coding",
-    "coding-agent",
-    "code-review",
-    "inline-diff",
-    "developer-tools"
-  ],
   "activationEvents": [
-    "onView:codexAgent.chat",
-    "onCommand:codexAgent.open"
+    "onStartupFinished",
+    "onView:puneet2.chat",
+    "onCommand:puneet2.open"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -52,108 +24,116 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "SCOPE can run commands and edit files, so the workspace must be trusted."
+      "description": "Puneet 3.0 can run commands and edit files, so the workspace must be trusted."
     },
     "virtualWorkspaces": {
       "supported": false
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
     "check": "tsc --noEmit",
     "build": "npm run check && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "test": "node --import tsx --test test/**/*.test.ts",
-    "package": "vsce package --no-dependencies"
+    "test": "node --import tsx --test test/**/*.test.ts"
   },
   "contributes": {
     "commands": [
       {
-        "command": "codexAgent.open",
-        "title": "SCOPE: Open Sidebar",
+        "command": "puneet2.open",
+        "title": "Puneet 3.0: Open Sidebar",
         "icon": "$(sparkle)"
       },
       {
-        "command": "codexAgent.newChat",
-        "title": "SCOPE: New Chat",
+        "command": "puneet2.newChat",
+        "title": "Puneet 3.0: New Chat",
         "icon": "$(add)"
       },
       {
-        "command": "codexAgent.showHistory",
-        "title": "SCOPE: Previous Chats",
+        "command": "puneet2.showHistory",
+        "title": "Puneet 3.0: Previous Chats",
         "icon": "$(history)"
       },
       {
-        "command": "codexAgent.openCommandMenu",
-        "title": "SCOPE: Open Command Menu",
+        "command": "puneet2.openPlans",
+        "title": "Puneet 3.0: Open Plans Folder",
+        "icon": "$(markdown)"
+      },
+      {
+        "command": "puneet2.openTads",
+        "title": "Puneet 3.0: Open TADs Folder",
+        "icon": "$(book)"
+      },
+      {
+        "command": "puneet2.openCommandMenu",
+        "title": "Puneet 3.0: Open Command Menu",
         "icon": "$(terminal)"
       },
       {
-        "command": "codexAgent.addSelection",
-        "title": "SCOPE: Add Selection to Chat"
+        "command": "puneet2.addSelection",
+        "title": "Puneet 3.0: Add Selection to Chat"
       },
       {
-        "command": "codexAgent.addFile",
-        "title": "SCOPE: Add Active File to Chat"
+        "command": "puneet2.addFile",
+        "title": "Puneet 3.0: Add Active File to Chat"
       },
       {
-        "command": "codexAgent.login",
-        "title": "SCOPE: Sign In"
+        "command": "puneet2.login",
+        "title": "Puneet 3.0: Sign In"
       },
       {
-        "command": "codexAgent.logout",
-        "title": "SCOPE: Sign Out"
+        "command": "puneet2.logout",
+        "title": "Puneet 3.0: Sign Out"
       },
       {
-        "command": "codexAgent.stop",
-        "title": "SCOPE: Stop Current Turn",
+        "command": "puneet2.stop",
+        "title": "Puneet 3.0: Stop Current Turn",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "codexAgent.reviewChanges",
-        "title": "SCOPE: Review Uncommitted Changes"
+        "command": "puneet2.reviewChanges",
+        "title": "Puneet 3.0: Review Uncommitted Changes"
       },
       {
-        "command": "codexAgent.reviewPendingChanges",
-        "title": "SCOPE: Review Pending Edits Inline"
+        "command": "puneet2.reviewPendingChanges",
+        "title": "Puneet 3.0: Review Pending Edits Inline"
       },
       {
-        "command": "codexAgent.acceptFileChange",
-        "title": "SCOPE: Keep Edits in This File",
+        "command": "puneet2.acceptFileChange",
+        "title": "Puneet 3.0: Keep Edits in This File",
         "icon": "$(check-all)"
       },
       {
-        "command": "codexAgent.rejectFileChange",
-        "title": "SCOPE: Undo Edits in This File",
+        "command": "puneet2.rejectFileChange",
+        "title": "Puneet 3.0: Undo Edits in This File",
         "icon": "$(discard)"
       },
       {
-        "command": "codexAgent.acceptAllChanges",
-        "title": "SCOPE: Keep All Pending Edits"
+        "command": "puneet2.acceptAllChanges",
+        "title": "Puneet 3.0: Keep All Pending Edits"
       },
       {
-        "command": "codexAgent.showStatus",
-        "title": "SCOPE: Show Account and Usage"
+        "command": "puneet2.showStatus",
+        "title": "Puneet 3.0: Show Account and Usage"
       },
       {
-        "command": "codexAgent.openSettings",
-        "title": "SCOPE: Open Settings"
+        "command": "puneet2.openSettings",
+        "title": "Puneet 3.0: Open Settings"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codexAgent",
-          "title": "SCOPE",
+          "id": "puneet2",
+          "title": "Puneet 3.0",
           "icon": "media/codex-agent.svg"
         }
       ]
     },
     "views": {
-      "codexAgent": [
+      "puneet2": [
         {
           "type": "webview",
-          "id": "codexAgent.chat",
+          "id": "puneet2.chat",
           "name": "Agent"
         }
       ]
@@ -161,74 +141,84 @@
     "menus": {
       "view/title": [
         {
-          "command": "codexAgent.showHistory",
-          "when": "view == codexAgent.chat",
+          "command": "puneet2.showHistory",
+          "when": "view == puneet2.chat",
           "group": "navigation@1"
         },
         {
-          "command": "codexAgent.newChat",
-          "when": "view == codexAgent.chat",
+          "command": "puneet2.newChat",
+          "when": "view == puneet2.chat",
           "group": "navigation@2"
         },
         {
-          "command": "codexAgent.openCommandMenu",
-          "when": "view == codexAgent.chat",
+          "command": "puneet2.openCommandMenu",
+          "when": "view == puneet2.chat",
           "group": "navigation@3"
         }
       ],
       "editor/context": [
         {
-          "command": "codexAgent.acceptFileChange",
-          "when": "codexAgent.activeFileHasPendingChanges",
+          "command": "puneet2.acceptFileChange",
+          "when": "puneet2.activeFileHasPendingChanges",
           "group": "navigation@1"
         },
         {
-          "command": "codexAgent.rejectFileChange",
-          "when": "codexAgent.activeFileCanReject",
+          "command": "puneet2.rejectFileChange",
+          "when": "puneet2.activeFileCanReject",
           "group": "navigation@2"
         },
         {
-          "command": "codexAgent.addSelection",
+          "command": "puneet2.addSelection",
           "when": "editorHasSelection",
           "group": "navigation@50"
         },
         {
-          "command": "codexAgent.addFile",
+          "command": "puneet2.addFile",
           "group": "navigation@51"
         }
       ],
       "editor/title": [
         {
-          "command": "codexAgent.acceptFileChange",
-          "when": "codexAgent.activeFileHasPendingChanges",
+          "command": "puneet2.acceptFileChange",
+          "when": "puneet2.activeFileHasPendingChanges",
           "group": "navigation@1"
         },
         {
-          "command": "codexAgent.rejectFileChange",
-          "when": "codexAgent.activeFileCanReject",
+          "command": "puneet2.rejectFileChange",
+          "when": "puneet2.activeFileCanReject",
           "group": "navigation@2"
         }
       ]
     },
     "configuration": {
-      "title": "SCOPE",
+      "title": "Puneet 3.0",
       "properties": {
-        "codexAgent.cliExecutable": {
+        "puneet2.cliExecutable": {
           "type": "string",
           "default": "",
           "description": "Optional absolute path to the Codex CLI executable. Leave empty to auto-detect it."
         },
-        "codexAgent.model": {
+        "puneet2.model": {
           "type": "string",
           "default": "",
           "description": "Default Codex model. Leave empty to use the server-selected default."
         },
-        "codexAgent.reasoningEffort": {
+        "puneet2.reasoningEffort": {
           "type": "string",
           "default": "",
           "description": "Optional reasoning effort sent with each turn (for example low, medium, high, or xhigh)."
         },
-        "codexAgent.sandbox": {
+        "puneet2.planDirectory": {
+          "type": "string",
+          "default": ".puneet/plans",
+          "description": "Workspace-relative directory where completed Plan-mode responses are saved as Markdown files."
+        },
+        "puneet2.tadDirectory": {
+          "type": "string",
+          "default": ".puneet/tads",
+          "description": "Workspace-relative directory where completed TAD-mode responses are saved as Markdown files."
+        },
+        "puneet2.sandbox": {
           "type": "string",
           "enum": [
             "read-only",
@@ -243,7 +233,7 @@
           "default": "workspace-write",
           "description": "Filesystem sandbox applied to new Codex threads."
         },
-        "codexAgent.approvalPolicy": {
+        "puneet2.approvalPolicy": {
           "type": "string",
           "enum": [
             "on-request",
@@ -258,12 +248,12 @@
           "default": "on-request",
           "description": "Approval policy applied to new Codex threads."
         },
-        "codexAgent.inlineReview.enabled": {
+        "puneet2.inlineReview.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Highlight Codex changes in the existing editor, show compact per-hunk Undo/Keep actions above each changed block, and reveal the before/after diff on hover."
         },
-        "codexAgent.selectionAction.enabled": {
+        "puneet2.selectionAction.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show an Add to Chat action above selected code in the active editor."
@@ -274,7 +264,6 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/vscode": "1.100.0",
-    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"

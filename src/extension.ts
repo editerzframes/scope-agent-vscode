@@ -6,7 +6,7 @@ import { rpcErrorMessage } from "./protocol";
 import { SelectionChatCodeLensProvider } from "./selectionChatCodeLensProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("SCOPE", { log: true });
+  const output = vscode.window.createOutputChannel("Puneet 3.0", { log: true });
   const service = new CodexService(context, output);
   const provider = new CodexViewProvider(context.extensionUri, service);
   const inlineDiff = new InlineDiffManager(service, output);
@@ -29,19 +29,21 @@ export function activate(context: vscode.ExtensionContext): void {
         try {
           await action(...args);
         } catch (error: unknown) {
-          vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
+          vscode.window.showErrorMessage(`Puneet 3.0: ${rpcErrorMessage(error)}`);
         }
       }),
     );
   };
 
-  command("codexAgent.open", () => provider.reveal());
-  command("codexAgent.showHistory", () => provider.showHistory());
-  command("codexAgent.newChat", async () => {
+  command("puneet2.open", () => provider.reveal());
+  command("puneet2.showHistory", () => provider.showHistory());
+  command("puneet2.openPlans", () => service.revealPlansFolder());
+  command("puneet2.openTads", () => service.revealTadsFolder());
+  command("puneet2.newChat", async () => {
     await provider.reveal();
     await service.newThread();
   });
-  command("codexAgent.addSelection", async (uri?: unknown, range?: unknown) => {
+  command("puneet2.addSelection", async (uri?: unknown, range?: unknown) => {
     let document: vscode.TextDocument;
     let selection: vscode.Range;
     if (uri instanceof vscode.Uri && range instanceof vscode.Range) {
@@ -57,9 +59,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const added = service.addSelectionContext(document, selection);
     await provider.reveal();
-    vscode.window.setStatusBarMessage(added ? "Added selected code to SCOPE" : "Selected code is already attached to SCOPE", 3_000);
+    vscode.window.setStatusBarMessage(
+      added ? "Added selected code to Puneet 3.0" : "Selected code is already attached to Puneet 3.0",
+      3_000,
+    );
   });
-  command("codexAgent.addFile", async (uri?: unknown) => {
+  command("puneet2.addFile", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       throw new Error("Open a file before adding it to the chat.");
@@ -67,8 +72,8 @@ export function activate(context: vscode.ExtensionContext): void {
     service.addFileContext(target);
     await provider.reveal();
   });
-  command("codexAgent.login", () => provider.signIn());
-  command("codexAgent.logout", async () => {
+  command("puneet2.login", () => provider.signIn());
+  command("puneet2.logout", async () => {
     const answer = await vscode.window.showWarningMessage(
       "Sign out of Codex on this machine? This clears the credentials managed by the local Codex runtime.",
       { modal: true },
@@ -78,13 +83,13 @@ export function activate(context: vscode.ExtensionContext): void {
       await service.logout();
     }
   });
-  command("codexAgent.stop", () => service.stop());
-  command("codexAgent.reviewChanges", async () => {
+  command("puneet2.stop", () => service.stop());
+  command("puneet2.reviewChanges", async () => {
     await provider.reveal();
     await service.reviewChanges();
   });
-  command("codexAgent.reviewPendingChanges", () => inlineDiff.reviewPendingChanges());
-  command("codexAgent.openChangedFile", async (filePath?: unknown) => {
+  command("puneet2.reviewPendingChanges", () => inlineDiff.reviewPendingChanges());
+  command("puneet2.openChangedFile", async (filePath?: unknown) => {
     if (typeof filePath !== "string") {
       throw new Error("The changed file path is unavailable.");
     }
@@ -94,48 +99,61 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     await inlineDiff.openFileForReview(uri);
   });
-  command("codexAgent.acceptHunk", async (uri?: unknown, hunkId?: unknown) => {
+  command("puneet2.acceptHunk", async (uri?: unknown, hunkId?: unknown) => {
     if (!(uri instanceof vscode.Uri) || typeof hunkId !== "string") {
       throw new Error("The selected Codex change is unavailable.");
     }
     await inlineDiff.acceptHunk(uri, hunkId);
   });
-  command("codexAgent.rejectHunk", async (uri?: unknown, hunkId?: unknown) => {
+  command("puneet2.rejectHunk", async (uri?: unknown, hunkId?: unknown) => {
     if (!(uri instanceof vscode.Uri) || typeof hunkId !== "string") {
       throw new Error("The selected Codex change is unavailable.");
     }
     await inlineDiff.rejectHunk(uri, hunkId);
   });
-  command("codexAgent.acceptFileChange", async (uri?: unknown) => {
+  command("puneet2.acceptFileChange", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       throw new Error("Open a file with a pending Codex edit first.");
     }
     await inlineDiff.acceptFile(target);
   });
-  command("codexAgent.rejectFileChange", async (uri?: unknown) => {
+  command("puneet2.rejectFileChange", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       throw new Error("Open a file with a pending Codex edit first.");
     }
     await inlineDiff.rejectFile(target);
   });
-  command("codexAgent.acceptAllChanges", () => inlineDiff.acceptAll());
-  command("codexAgent.showStatus", async () => {
+  command("puneet2.acceptAllChanges", () => inlineDiff.acceptAll());
+  command("puneet2.showStatus", async () => {
     await service.refresh();
     vscode.window.showInformationMessage(service.statusSummary());
   });
-  command("codexAgent.openSettings", async () => {
-    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:PuneetGarg.scope-agent");
+  command("puneet2.openSettings", async () => {
+    await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:local.puneet-2");
   });
-  command("codexAgent.openCommandMenu", async () => {
+  command("puneet2.openCommandMenu", async () => {
     const state = service.state;
     const items = [
       { label: "$(add) New chat", description: "/new", action: "new" },
       { label: "$(history) Previous chats", action: "history" },
+      { label: "$(markdown) Open plans folder", description: ".puneet/plans", action: "plans" },
+      { label: "$(book) Open TADs folder", description: ".puneet/tads", action: "tads" },
       { label: "$(symbol-file) Add active file", action: "file" },
       { label: "$(selection) Add selected code", action: "selection" },
       { label: "$(inspect) Review uncommitted changes", description: "/review", action: "review" },
+      {
+        label: "$(map) Choose mode",
+        description: state.collaborationMode === "clickup"
+          ? "ClickUp"
+          : state.collaborationMode === "tad"
+            ? "TAD"
+            : state.collaborationMode === "plan"
+              ? "Plan"
+              : "Agent",
+        action: "mode",
+      },
       { label: "$(symbol-parameter) Choose model", description: state.selectedModel, action: "model" },
       { label: "$(fold) Compact chat context", description: "/compact", action: "compact" },
       { label: "$(graph) Account and usage", description: "/status", action: "status" },
@@ -157,7 +175,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const picked = await vscode.window.showQuickPick(items, {
-      title: "SCOPE commands",
+      title: "Puneet 3.0 commands",
       placeHolder: "Choose an action",
     });
     switch (picked?.action) {
@@ -165,16 +183,22 @@ export function activate(context: vscode.ExtensionContext): void {
         await service.newThread();
         break;
       case "file":
-        await vscode.commands.executeCommand("codexAgent.addFile");
+        await vscode.commands.executeCommand("puneet2.addFile");
         break;
       case "history":
         await provider.showHistory();
+        break;
+      case "plans":
+        await service.revealPlansFolder();
+        break;
+      case "tads":
+        await service.revealTadsFolder();
         break;
       case "pendingChanges":
         await inlineDiff.reviewPendingChanges();
         break;
       case "selection":
-        await vscode.commands.executeCommand("codexAgent.addSelection");
+        await vscode.commands.executeCommand("puneet2.addSelection");
         break;
       case "review":
         await service.reviewChanges();
@@ -182,20 +206,23 @@ export function activate(context: vscode.ExtensionContext): void {
       case "model":
         await provider.pickModel();
         break;
+      case "mode":
+        await provider.pickCollaborationMode();
+        break;
       case "compact":
         await service.compact();
         break;
       case "status":
-        await vscode.commands.executeCommand("codexAgent.showStatus");
+        await vscode.commands.executeCommand("puneet2.showStatus");
         break;
       case "settings":
-        await vscode.commands.executeCommand("codexAgent.openSettings");
+        await vscode.commands.executeCommand("puneet2.openSettings");
         break;
       case "stop":
         await service.stop();
         break;
       case "logout":
-        await vscode.commands.executeCommand("codexAgent.logout");
+        await vscode.commands.executeCommand("puneet2.logout");
         break;
       case "login":
         await provider.signIn();
@@ -205,6 +232,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
+  void provider.reveal();
   void service.initialize().catch((error: unknown) => {
     output.appendLine(`Initialization failed: ${rpcErrorMessage(error)}`);
   });

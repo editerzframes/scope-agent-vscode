@@ -4,13 +4,44 @@ import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { CodexAppServer, ServerRequestEvent } from "./codexAppServer";
 import {
+  buildCodexCollaborationMode,
+  CollaborationModeSelection,
+  normalizeCollaborationMode,
+} from "./collaborationMode";
+import {
+  normalizeUiQuestionAnswer,
+  parseUiQuestions,
+  UiQuestion,
+} from "./chatQuestions";
+import {
+  attachClickUpSkill,
+  contentInvokesClickUp,
+  FETCH_MY_CLICKUP_TICKETS_PROMPT,
+} from "./clickUpMode";
+import {
   buildUserInputs,
   clampPercent,
   isRecord,
   PromptContext,
   RpcNotification,
+  RpcId,
   rpcErrorMessage,
 } from "./protocol";
+import {
+  buildPlanFilename,
+  buildPlanMarkdown,
+  DEFAULT_PLAN_DIRECTORY,
+  normalizePlanDirectory,
+  planTitleFromPrompt,
+} from "./planFiles";
+import {
+  buildTadFilename,
+  buildTadMarkdown,
+  DEFAULT_TAD_DIRECTORY,
+  normalizeTadDirectory,
+  tadTitleFromPrompt,
+} from "./tadFiles";
+import { attachTadSkill, contentInvokesTad } from "./tadMode";
 import { countUnifiedDiffLines, parseAggregatedUnifiedDiff } from "./turnDiff";
 
 interface ChatGptAccount {
@@ -77,6 +108,17 @@ interface RateLimitsResponse {
   rateLimitsByLimitId: Record<string, RateLimitSnapshot> | null;
 }
 
+interface McpServerStatus {
+  name: string;
+  tools?: Record<string, unknown>;
+  authStatus?: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+}
+
+interface McpServerStatusResponse {
+  data: McpServerStatus[];
+  nextCursor: string | null;
+}
+
 interface ThreadItem {
   type: string;
   id: string;
@@ -122,6 +164,15 @@ export interface UiMessage {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
+  kind?: "message" | "plan" | "tad" | "clickup";
+  documentPath?: string;
+  documentLabel?: string;
+}
+
+interface StoredDocumentFile {
+  path: string;
+  label: string;
+  title: string;
 }
 
 export interface UiActivity {
@@ -216,6 +267,7 @@ export interface PublicState {
     description: string;
   }>;
   selectedModel: string;
+  collaborationMode: CollaborationModeSelection;
   threadId: string | null;
   turnId: string | null;
   running: boolean;
@@ -224,13 +276,23 @@ export interface PublicState {
   messages: UiMessage[];
   fileChanges: UiFileChange[];
   activities: UiActivity[];
+  pendingQuestions: UiQuestion[];
   contexts: PromptContext[];
   error: string | null;
 }
 
-const LAST_THREAD_KEY = "codexAgent.lastThreadId";
-const SELECTED_MODEL_KEY = "codexAgent.selectedModel";
+const LAST_THREAD_KEY = "puneet2.lastThreadId";
+const SELECTED_MODEL_KEY = "puneet2.selectedModel";
+const COLLABORATION_MODE_KEY = "puneet2.collaborationMode";
+const PLAN_FILES_KEY = "puneet2.planFiles";
+const TAD_FILES_KEY = "puneet2.tadFiles";
 const MAX_UI_DIFF_CHARS = 120_000;
+
+interface PendingUserInputRequest {
+  requestId: RpcId;
+  questions: UiQuestion[];
+  answers: Record<string, { answers: string[] }>;
+}
 
 export class CodexService extends EventEmitter implements vscode.Disposable {
   private readonly server: CodexAppServer;
@@ -240,6 +302,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
   private rateLimits: RateLimitsResponse | null = null;
   private models: ModelInfo[] = [];
   private selectedModel = "";
+  private collaborationMode: CollaborationModeSelection = "agent";
   private threadId: string | null = null;
   private turnId: string | null = null;
   private turnProgress: UiTurnProgress = createIdleTurnProgress();
@@ -247,7 +310,10 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
   private messages: UiMessage[] = [];
   private fileChanges: UiFileChange[] = [];
   private activities: UiActivity[] = [];
+  private pendingUserInput: PendingUserInputRequest | null = null;
   private contexts: PromptContext[] = [];
+  private planFiles: Record<string, StoredDocumentFile> = {};
+  private tadFiles: Record<string, StoredDocumentFile> = {};
   private error: string | null = null;
   private initializing: Promise<void> | undefined;
 
@@ -258,8 +324,17 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     super();
     this.server = new CodexAppServer(this.workspaceFolder?.uri.fsPath);
     this.selectedModel =
-      vscode.workspace.getConfiguration("codexAgent").get<string>("model", "").trim() ||
+      vscode.workspace.getConfiguration("puneet2").get<string>("model", "").trim() ||
       this.context.workspaceState.get<string>(SELECTED_MODEL_KEY, "");
+    this.collaborationMode = normalizeCollaborationMode(
+      this.context.workspaceState.get<string>(COLLABORATION_MODE_KEY),
+    );
+    this.planFiles = {
+      ...(this.context.workspaceState.get<Record<string, StoredDocumentFile>>(PLAN_FILES_KEY) ?? {}),
+    };
+    this.tadFiles = {
+      ...(this.context.workspaceState.get<Record<string, StoredDocumentFile>>(TAD_FILES_KEY) ?? {}),
+    };
 
     this.server.on("notification", (message: RpcNotification) => this.handleNotification(message));
     this.server.on("serverRequest", (request: ServerRequestEvent) => void this.handleServerRequest(request));
@@ -268,6 +343,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       this.connection = "error";
       this.error = message;
       this.turnId = null;
+      this.pendingUserInput = null;
       this.finishTurn("failed", undefined, "Codex runtime stopped", message);
       this.emitState();
     });
@@ -287,6 +363,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
         description: model.description,
       })),
       selectedModel: this.selectedModel,
+      collaborationMode: this.collaborationMode,
       threadId: this.threadId,
       turnId: this.turnId,
       running: this.turnProgress.status === "running",
@@ -295,6 +372,10 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       messages: this.messages.map((message) => ({ ...message })),
       fileChanges: this.fileChanges.map((change) => ({ ...change })),
       activities: this.activities.map((activity) => ({ ...activity })),
+      pendingQuestions: (this.pendingUserInput?.questions ?? []).map((question) => ({
+        ...question,
+        options: question.options.map((option) => ({ ...option })),
+      })),
       contexts: this.contexts.map((context) => ({ ...context })),
       error: this.error,
     };
@@ -366,6 +447,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     this.models = [];
     this.threadId = null;
     this.turnId = null;
+    this.pendingUserInput = null;
     this.turnProgress = createIdleTurnProgress();
     this.threads = [];
     this.messages = [];
@@ -408,6 +490,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     });
     this.threadId = response.thread.id;
     this.turnId = null;
+    this.pendingUserInput = null;
     this.turnProgress = createIdleTurnProgress();
     this.contexts = [];
     this.error = null;
@@ -425,6 +508,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
 
     this.threadId = null;
     this.turnId = null;
+    this.pendingUserInput = null;
     this.turnProgress = createIdleTurnProgress();
     this.messages = [];
     this.fileChanges = [];
@@ -439,7 +523,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       approvalPolicy: this.approvalPolicy,
       sandbox: this.sandbox,
       sessionStartSource: "clear",
-      threadSource: "scope_agent_vscode",
+      threadSource: "puneet2_vscode",
     });
     this.threadId = response.thread.id;
     await this.context.workspaceState.update(LAST_THREAD_KEY, this.threadId);
@@ -457,7 +541,23 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       await this.newThread();
     }
 
-    const input = buildUserInputs(trimmed, this.contexts);
+    let input = buildUserInputs(trimmed, this.contexts);
+    if (this.collaborationMode === "tad") {
+      input = attachTadSkill(
+        input,
+        vscode.Uri.joinPath(this.context.extensionUri, "skills", "tad", "SKILL.md").fsPath,
+      );
+    } else if (this.collaborationMode === "clickup") {
+      input = attachClickUpSkill(
+        input,
+        vscode.Uri.joinPath(
+          this.context.extensionUri,
+          "skills",
+          "clickup-my-tickets",
+          "SKILL.md",
+        ).fsPath,
+      );
+    }
     this.contexts = [];
     this.messages.push({ id: randomUUID(), role: "user", text: trimmed });
     this.error = null;
@@ -476,15 +576,42 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     this.activities = [];
     this.fileChanges = [];
     this.emit("turnPreparing", { threadId: this.threadId });
-    this.beginTurn("Starting task", "Preparing the workspace and sending your request to Codex.");
+    this.beginTurn(
+      this.collaborationMode === "clickup"
+        ? "Fetching ClickUp tickets"
+        : this.collaborationMode === "tad"
+        ? "Starting a TAD"
+        : this.collaborationMode === "plan"
+          ? "Starting a plan"
+          : "Starting task",
+      this.collaborationMode === "clickup"
+        ? "Attaching the read-only ClickUp skill and searching for tickets assigned to you."
+        : this.collaborationMode === "tad"
+        ? "Attaching the TAD skill and preparing the current plan and workspace context."
+        : this.collaborationMode === "plan"
+          ? "Preparing the workspace and asking Puneet 3.0 to build a plan."
+          : "Preparing the workspace and sending your request to Codex.",
+    );
     this.emitState();
     try {
+      const collaborationMode = buildCodexCollaborationMode(
+        this.collaborationMode,
+        this.selectedModel,
+        this.reasoningEffort,
+      );
+      if (
+        (this.collaborationMode === "plan" || this.collaborationMode === "tad") &&
+        !collaborationMode
+      ) {
+        throw new Error(`${this.collaborationMode === "tad" ? "TAD" : "Plan"} mode needs an available Codex model. Refresh the account and try again.`);
+      }
       const response = await this.server.request<TurnResponse>("turn/start", {
         threadId: this.threadId,
         input,
         cwd: this.workspaceFolder?.uri.fsPath ?? null,
         model: this.selectedModel || null,
         effort: this.reasoningEffort || null,
+        collaborationMode: collaborationMode ?? null,
       });
       this.turnId = response.turn.id;
       this.emitState();
@@ -553,6 +680,81 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     this.emitState();
   }
 
+  async setCollaborationMode(mode: CollaborationModeSelection): Promise<void> {
+    if (this.turnId) {
+      throw new Error("Wait for the current task to finish before changing modes.");
+    }
+    this.collaborationMode = normalizeCollaborationMode(mode);
+    await this.context.workspaceState.update(COLLABORATION_MODE_KEY, this.collaborationMode);
+    this.emitState();
+  }
+
+  answerUserInput(questionId: string, value: unknown, custom = false): void {
+    const pending = this.pendingUserInput;
+    const question = pending?.questions.find((candidate) => candidate.id === questionId);
+    if (!pending || !question) {
+      throw new Error("This question is no longer waiting for an answer.");
+    }
+    const answer = normalizeUiQuestionAnswer(question, value, custom);
+    if (answer === null) {
+      throw new Error("That answer is not valid for this question.");
+    }
+    pending.answers[question.id] = { answers: answer ? [answer] : [] };
+    pending.questions = pending.questions.filter((candidate) => candidate.id !== question.id);
+    if (pending.questions.length === 0) {
+      this.server.respond(pending.requestId, { answers: pending.answers });
+      this.pendingUserInput = null;
+    }
+    this.emitState();
+  }
+
+  async fetchMyClickUpTickets(): Promise<void> {
+    await this.ensureCanRun();
+    await this.server.request("config/mcpServer/reload", undefined, 30_000);
+    const response = await this.server.request<McpServerStatusResponse>("mcpServerStatus/list", {
+      cursor: null,
+      limit: 100,
+      detail: "toolsAndAuthOnly",
+      threadId: this.threadId,
+    });
+    const clickUp = response.data.find((server) => server.name.toLowerCase() === "clickup");
+    if (!clickUp) {
+      throw new Error(
+        "ClickUp MCP is not connected to this Codex runtime. Add it with `codex mcp add clickup --url https://mcp.clickup.com/mcp`, authenticate with `codex mcp login clickup`, then restart extensions.",
+      );
+    }
+    if (clickUp.authStatus === "notLoggedIn") {
+      throw new Error(
+        "ClickUp MCP needs authentication. Run `codex mcp login clickup`, finish the browser sign-in, then select ClickUp again.",
+      );
+    }
+    if (!clickUp.tools || Object.keys(clickUp.tools).length === 0) {
+      throw new Error(
+        "ClickUp MCP is configured but its tools are unavailable. Restart extensions and check the ClickUp MCP connection.",
+      );
+    }
+    await this.sendPrompt(FETCH_MY_CLICKUP_TICKETS_PROMPT);
+  }
+
+  async revealPlansFolder(): Promise<void> {
+    const directory = await this.ensurePlanDirectory();
+    await vscode.commands.executeCommand("revealInExplorer", directory);
+  }
+
+  async revealTadsFolder(): Promise<void> {
+    const directory = await this.ensureTadDirectory();
+    await vscode.commands.executeCommand("revealInExplorer", directory);
+  }
+
+  async openDocumentFile(filePath: string): Promise<void> {
+    const uri = vscode.Uri.file(filePath);
+    if (!vscode.workspace.getWorkspaceFolder(uri)) {
+      throw new Error("The selected document is outside the active workspace.");
+    }
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+
   addFileContext(uri: vscode.Uri): void {
     const existing = this.contexts.find((context) => context.kind === "file" && context.path === uri.fsPath);
     if (existing) {
@@ -615,19 +817,19 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
 
   private get sandbox(): string {
     return vscode.workspace
-      .getConfiguration("codexAgent")
+      .getConfiguration("puneet2")
       .get<string>("sandbox", "workspace-write");
   }
 
   private get approvalPolicy(): string {
     return vscode.workspace
-      .getConfiguration("codexAgent")
+      .getConfiguration("puneet2")
       .get<string>("approvalPolicy", "on-request");
   }
 
   private get reasoningEffort(): string {
     return vscode.workspace
-      .getConfiguration("codexAgent")
+      .getConfiguration("puneet2")
       .get<string>("reasoningEffort", "")
       .trim();
   }
@@ -736,9 +938,14 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     this.messages = [];
     this.fileChanges = [];
     this.activities = [];
+    let latestUserPrompt = "Implementation plan";
+    let latestDocumentKind: "plan" | "tad" = "plan";
+    let latestMessageKind: "message" | "clickup" = "message";
     for (const turn of thread.turns ?? []) {
       for (const item of turn.items ?? []) {
         if (item.type === "userMessage" && Array.isArray(item.content)) {
+          latestDocumentKind = contentInvokesTad(item.content) ? "tad" : "plan";
+          latestMessageKind = contentInvokesClickUp(item.content) ? "clickup" : "message";
           const text = item.content
             .map((part) => {
               if (!isRecord(part)) {
@@ -756,10 +963,49 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
             .join("\n")
             .trim();
           if (text) {
+            latestUserPrompt = text;
             this.messages.push({ id: item.id, role: "user", text });
           }
         } else if (item.type === "agentMessage" && typeof item.text === "string") {
-          this.messages.push({ id: item.id, role: "assistant", text: item.text });
+          this.messages.push({ id: item.id, role: "assistant", text: item.text, kind: latestMessageKind });
+        } else if (item.type === "plan" && typeof item.text === "string") {
+          const documentKind = latestDocumentKind;
+          const files = documentKind === "tad" ? this.tadFiles : this.planFiles;
+          const saved = files[this.documentStorageKey(item.id, thread.id)];
+          if (saved) {
+            this.messages.push({
+              id: item.id,
+              role: "assistant",
+              text: saved.title,
+              kind: documentKind,
+              documentPath: saved.path,
+              documentLabel: saved.label,
+            });
+          } else {
+            this.messages.push({
+              id: item.id,
+              role: "assistant",
+              text: documentKind === "tad"
+                ? "Moving this earlier TAD into .puneet/tads…"
+                : "Moving this earlier plan into .puneet/plans…",
+              kind: documentKind,
+            });
+            const saveDocument = documentKind === "tad"
+              ? this.saveTadFile(item.id, item.text, latestUserPrompt, thread.id)
+              : this.savePlanFile(item.id, item.text, latestUserPrompt, thread.id);
+            void saveDocument.catch((error: unknown) => {
+              if (this.threadId !== thread.id) {
+                return;
+              }
+              const message = rpcErrorMessage(error);
+              this.setAssistantMessage(
+                item.id,
+                `The earlier ${documentKind === "tad" ? "TAD" : "plan"} could not be saved as Markdown (${message}).\n\n${item.text}`,
+                documentKind,
+              );
+              this.emitState();
+            });
+          }
         } else {
           if (item.type === "fileChange") {
             this.upsertFileChanges(item.changes, "completed");
@@ -820,7 +1066,26 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
       case "item/agentMessage/delta":
         if (typeof params.itemId === "string" && typeof params.delta === "string") {
           this.updateTurnProgress("Writing an update", "Codex is streaming its latest progress.");
-          this.appendAssistantDelta(params.itemId, params.delta);
+          this.appendAssistantDelta(
+            params.itemId,
+            params.delta,
+            this.collaborationMode === "clickup" ? "clickup" : "message",
+          );
+          this.emit("progress", { ...this.turnProgress });
+        }
+        break;
+      case "item/plan/delta":
+        if (typeof params.itemId === "string" && typeof params.delta === "string") {
+          const documentKind = this.collaborationMode === "tad" ? "tad" : "plan";
+          this.updateTurnProgress(
+            documentKind === "tad" ? "Designing the TAD" : "Building the plan",
+            documentKind === "tad"
+              ? "Puneet 3.0 is applying the TAD skill and preparing a Markdown architecture document."
+              : "Puneet 3.0 is preparing a Markdown plan file.",
+          );
+          if (this.ensureDocumentPlaceholder(params.itemId, documentKind)) {
+            this.emitState();
+          }
           this.emit("progress", { ...this.turnProgress });
         }
         break;
@@ -869,8 +1134,43 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
             }
           }
           if (item.type === "agentMessage" && typeof item.text === "string") {
-            this.setAssistantMessage(item.id, item.text);
-            this.updateTurnProgress("Finalizing task", "The response is complete; Codex is finishing the turn.");
+            this.setAssistantMessage(
+              item.id,
+              item.text,
+              this.collaborationMode === "clickup" ? "clickup" : "message",
+            );
+            this.updateTurnProgress(
+              "Finalizing task",
+              "The response is complete; Codex is finishing the turn.",
+            );
+          } else if (item.type === "plan" && typeof item.text === "string") {
+            const documentKind = this.collaborationMode === "tad" ? "tad" : "plan";
+            this.setAssistantMessage(
+              item.id,
+              documentKind === "tad"
+                ? "Saving the TAD to .puneet/tads…"
+                : "Saving the plan to .puneet/plans…",
+              documentKind,
+            );
+            this.updateTurnProgress(
+              documentKind === "tad" ? "Saving TAD" : "Saving plan",
+              documentKind === "tad"
+                ? "Writing the completed technical architecture document to Markdown."
+                : "Writing the completed plan to a Markdown file.",
+            );
+            const saveDocument = documentKind === "tad"
+              ? this.saveTadFile(item.id, item.text)
+              : this.savePlanFile(item.id, item.text);
+            void saveDocument.catch((error: unknown) => {
+              const message = rpcErrorMessage(error);
+              this.setAssistantMessage(
+                item.id,
+                `The ${documentKind === "tad" ? "TAD" : "plan"} could not be saved as Markdown (${message}).\n\n${item.text}`,
+                documentKind,
+              );
+              this.addSystemMessage(`Could not save the ${documentKind === "tad" ? "TAD" : "plan"} file: ${message}`);
+              this.emitState();
+            });
           } else {
             this.upsertActivity(item, this.activityStatus(item));
             const activity = this.describeActivity(item);
@@ -886,6 +1186,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
         const turn = isRecord(params.turn) ? params.turn : {};
         const completedTurnId = typeof turn.id === "string" ? turn.id : this.turnId;
         this.turnId = null;
+        this.pendingUserInput = null;
         const turnStatus = typeof turn.status === "string" ? turn.status.toLowerCase() : "completed";
         const durationMs = typeof turn.durationMs === "number" ? turn.durationMs : undefined;
         let finishedStatus: TurnFinishedEvent["status"];
@@ -957,7 +1258,7 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
           await this.handlePermissionApproval(request);
           return;
         case "item/tool/requestUserInput":
-          await this.handleUserInputRequest(request);
+          this.handleUserInputRequest(request);
           return;
         case "mcpServer/elicitation/request":
           vscode.window.showWarningMessage("An MCP server requested additional input; this MVP declined the request.");
@@ -1030,62 +1331,161 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
     }
   }
 
-  private async handleUserInputRequest(request: ServerRequestEvent): Promise<void> {
-    const params = isRecord(request.params) ? request.params : {};
-    const questions = Array.isArray(params.questions) ? params.questions : [];
-    const answers: Record<string, { answers: string[] }> = {};
-
-    for (const rawQuestion of questions) {
-      if (!isRecord(rawQuestion) || typeof rawQuestion.id !== "string") {
-        continue;
-      }
-      const prompt = typeof rawQuestion.question === "string" ? rawQuestion.question : "Codex needs input";
-      const options = Array.isArray(rawQuestion.options) ? rawQuestion.options.filter(isRecord) : [];
-      let answer: string | undefined;
-
-      if (options.length > 0) {
-        const picks = options
-          .filter((option) => typeof option.label === "string")
-          .map((option) => ({
-            label: option.label as string,
-            description: typeof option.description === "string" ? option.description : undefined,
-          }));
-        if (rawQuestion.isOther === true) {
-          picks.push({ label: "Other…", description: "Enter a different answer" });
-        }
-        const picked = await vscode.window.showQuickPick(picks, {
-          title: typeof rawQuestion.header === "string" ? rawQuestion.header : "Codex",
-          placeHolder: prompt,
-          ignoreFocusOut: true,
-        });
-        if (picked?.label === "Other…") {
-          answer = await vscode.window.showInputBox({ prompt, ignoreFocusOut: true });
-        } else {
-          answer = picked?.label;
-        }
-      } else {
-        answer = await vscode.window.showInputBox({
-          title: typeof rawQuestion.header === "string" ? rawQuestion.header : "Codex",
-          prompt,
-          password: rawQuestion.isSecret === true,
-          ignoreFocusOut: true,
-        });
-      }
-
-      answers[rawQuestion.id] = { answers: answer === undefined ? [] : [answer] };
+  private handleUserInputRequest(request: ServerRequestEvent): void {
+    if (this.pendingUserInput) {
+      throw new Error("Another Codex question is already waiting for an answer.");
     }
-
-    this.server.respond(request.id, { answers });
+    const questions = parseUiQuestions(request.params);
+    if (questions.length === 0) {
+      this.server.respond(request.id, { answers: {} });
+      return;
+    }
+    this.pendingUserInput = {
+      requestId: request.id,
+      questions,
+      answers: {},
+    };
+    this.updateTurnProgress("Waiting for your input", questions[0].question);
+    this.emitState();
   }
 
-  private appendAssistantDelta(id: string, delta: string): void {
+  private appendAssistantDelta(
+    id: string,
+    delta: string,
+    kind: "message" | "plan" | "clickup",
+  ): void {
     let message = this.messages.find((candidate) => candidate.id === id);
     if (!message) {
-      message = { id, role: "assistant", text: "" };
+      message = { id, role: "assistant", text: "", kind };
       this.messages.push(message);
     }
+    message.kind = kind;
     message.text += delta;
-    this.emit("delta", { id, delta });
+    this.emit("delta", { id, delta, kind });
+  }
+
+  private ensureDocumentPlaceholder(id: string, kind: "plan" | "tad"): boolean {
+    const existing = this.messages.find((message) => message.id === id);
+    if (existing) {
+      return false;
+    }
+    this.messages.push({
+      id,
+      role: "assistant",
+      text: kind === "tad"
+        ? "Preparing a technical architecture document in .puneet/tads…"
+        : "Preparing a Markdown plan in .puneet/plans…",
+      kind,
+    });
+    return true;
+  }
+
+  private async savePlanFile(
+    itemId: string,
+    plan: string,
+    promptOverride?: string,
+    threadIdOverride?: string | null,
+  ): Promise<void> {
+    const generatedAt = new Date();
+    const sourceThreadId = threadIdOverride ?? this.threadId;
+    const prompt =
+      promptOverride?.trim() ||
+      [...this.messages].reverse().find((message) => message.role === "user")?.text ||
+      "Implementation plan";
+    const title = planTitleFromPrompt(prompt);
+    const storageKey = this.documentStorageKey(itemId, sourceThreadId);
+    const existing = this.planFiles[storageKey];
+    const directory = await this.ensurePlanDirectory();
+    const uri = existing
+      ? vscode.Uri.file(existing.path)
+      : vscode.Uri.joinPath(directory, buildPlanFilename(prompt, itemId, generatedAt));
+    if (!vscode.workspace.getWorkspaceFolder(uri)) {
+      throw new Error("The plan file resolved outside the active workspace.");
+    }
+    const markdown = buildPlanMarkdown(prompt, plan, generatedAt, sourceThreadId);
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(markdown));
+
+    const stored = {
+      path: uri.fsPath,
+      label: vscode.workspace.asRelativePath(uri, false),
+      title,
+    } satisfies StoredDocumentFile;
+    this.planFiles[storageKey] = stored;
+    await this.context.workspaceState.update(PLAN_FILES_KEY, this.planFiles);
+    if (this.threadId === sourceThreadId) {
+      this.setDocumentFileMessage(itemId, stored, "plan");
+      this.emitState();
+    }
+  }
+
+  private async saveTadFile(
+    itemId: string,
+    tad: string,
+    promptOverride?: string,
+    threadIdOverride?: string | null,
+  ): Promise<void> {
+    const generatedAt = new Date();
+    const sourceThreadId = threadIdOverride ?? this.threadId;
+    const prompt =
+      promptOverride?.trim() ||
+      [...this.messages].reverse().find((message) => message.role === "user")?.text ||
+      "Technical architecture";
+    const title = tadTitleFromPrompt(prompt);
+    const storageKey = this.documentStorageKey(itemId, sourceThreadId);
+    const existing = this.tadFiles[storageKey];
+    const directory = await this.ensureTadDirectory();
+    const uri = existing
+      ? vscode.Uri.file(existing.path)
+      : vscode.Uri.joinPath(directory, buildTadFilename(prompt, itemId, generatedAt));
+    if (!vscode.workspace.getWorkspaceFolder(uri)) {
+      throw new Error("The TAD file resolved outside the active workspace.");
+    }
+    const markdown = buildTadMarkdown(prompt, tad, generatedAt, sourceThreadId);
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(markdown));
+
+    const stored = {
+      path: uri.fsPath,
+      label: vscode.workspace.asRelativePath(uri, false),
+      title,
+    } satisfies StoredDocumentFile;
+    this.tadFiles[storageKey] = stored;
+    await this.context.workspaceState.update(TAD_FILES_KEY, this.tadFiles);
+    if (this.threadId === sourceThreadId) {
+      this.setDocumentFileMessage(itemId, stored, "tad");
+      this.emitState();
+    }
+  }
+
+  private async ensurePlanDirectory(): Promise<vscode.Uri> {
+    const folder = this.workspaceFolder;
+    if (!folder) {
+      throw new Error("Open a local folder before creating a plan.");
+    }
+    const configured = vscode.workspace
+      .getConfiguration("puneet2")
+      .get<string>("planDirectory", DEFAULT_PLAN_DIRECTORY);
+    const relativePath = normalizePlanDirectory(configured);
+    const directory = vscode.Uri.joinPath(folder.uri, ...relativePath.split("/").filter(Boolean));
+    await vscode.workspace.fs.createDirectory(directory);
+    return directory;
+  }
+
+  private async ensureTadDirectory(): Promise<vscode.Uri> {
+    const folder = this.workspaceFolder;
+    if (!folder) {
+      throw new Error("Open a local folder before creating a TAD.");
+    }
+    const configured = vscode.workspace
+      .getConfiguration("puneet2")
+      .get<string>("tadDirectory", DEFAULT_TAD_DIRECTORY);
+    const relativePath = normalizeTadDirectory(configured);
+    const directory = vscode.Uri.joinPath(folder.uri, ...relativePath.split("/").filter(Boolean));
+    await vscode.workspace.fs.createDirectory(directory);
+    return directory;
+  }
+
+  private documentStorageKey(itemId: string, threadId = this.threadId): string {
+    return `${threadId ?? "unknown"}:${itemId}`;
   }
 
   private beginTurn(label: string, detail: string): void {
@@ -1144,10 +1544,17 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
         return { label: "Updating workspace files", detail: "Codex is preparing or applying code changes." };
       case "mcpToolCall":
       case "dynamicToolCall":
-        return {
-          label: "Using a tool",
-          detail: typeof item.tool === "string" ? `Running ${item.tool}.` : "Codex is using an external tool.",
-        };
+        return this.collaborationMode === "clickup"
+          ? {
+              label: "Reading ClickUp",
+              detail: typeof item.tool === "string"
+                ? `Running the read-only ${item.tool} tool.`
+                : "Searching ClickUp for your assigned tickets.",
+            }
+          : {
+              label: "Using a tool",
+              detail: typeof item.tool === "string" ? `Running ${item.tool}.` : "Codex is using an external tool.",
+            };
       case "webSearch":
         return { label: "Searching the web", detail: "Codex is gathering current information." };
       case "collabAgentToolCall":
@@ -1155,17 +1562,51 @@ export class CodexService extends EventEmitter implements vscode.Disposable {
         return { label: "Coordinating agent work", detail: "Codex is waiting for or coordinating another agent." };
       case "agentMessage":
         return { label: "Writing an update", detail: "Codex is preparing a progress message." };
+      case "plan":
+        return this.collaborationMode === "tad"
+          ? { label: "Designing the TAD", detail: "Puneet 3.0 is preparing the technical architecture document." }
+          : { label: "Building the plan", detail: "Puneet 3.0 is preparing a step-by-step plan." };
       default:
         return { label: "Codex is working", detail: "The task is still running." };
     }
   }
 
-  private setAssistantMessage(id: string, text: string): void {
+  private setAssistantMessage(
+    id: string,
+    text: string,
+    kind: "message" | "plan" | "tad" | "clickup",
+  ): void {
     const existing = this.messages.find((message) => message.id === id);
     if (existing) {
       existing.text = text;
+      existing.kind = kind;
+      existing.documentPath = undefined;
+      existing.documentLabel = undefined;
     } else {
-      this.messages.push({ id, role: "assistant", text });
+      this.messages.push({ id, role: "assistant", text, kind });
+    }
+  }
+
+  private setDocumentFileMessage(
+    id: string,
+    document: StoredDocumentFile,
+    kind: "plan" | "tad",
+  ): void {
+    const existing = this.messages.find((message) => message.id === id);
+    if (existing) {
+      existing.text = document.title;
+      existing.kind = kind;
+      existing.documentPath = document.path;
+      existing.documentLabel = document.label;
+    } else {
+      this.messages.push({
+        id,
+        role: "assistant",
+        text: document.title,
+        kind,
+        documentPath: document.path,
+        documentLabel: document.label,
+      });
     }
   }
 

@@ -16,6 +16,7 @@ import {
   reverseHunkInText,
   UnifiedDiffHunk,
 } from "./unifiedDiff";
+import { appliedSnapshotIsVisible } from "./inlineReviewTiming";
 
 interface FileSnapshot {
   exists: boolean;
@@ -131,7 +132,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
           new vscode.CodeLens(anchor, {
             title: "$(discard) Undo",
             tooltip: "Restore this block to its pre-Codex content",
-            command: "codexAgent.rejectHunk",
+            command: "puneet2.rejectHunk",
             arguments: [document.uri, hunk.id],
           }),
         );
@@ -140,7 +141,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         new vscode.CodeLens(anchor, {
           title: "$(check) Keep",
           tooltip: "Keep this Codex change",
-          command: "codexAgent.acceptHunk",
+          command: "puneet2.acceptHunk",
           arguments: [document.uri, hunk.id],
         }),
       );
@@ -365,7 +366,10 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       }
       return;
     }
-    await Promise.all(event.changes.map((change) => this.stageAppliedChange(change)));
+    const applied = await Promise.all(event.changes.map((change) => this.stageAppliedChange(change)));
+    if (applied.some(Boolean)) {
+      this.refreshReviewUi();
+    }
   }
 
   private async finalizeTurn(_event: TurnFinishedEvent): Promise<void> {
@@ -508,21 +512,42 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     await task;
   }
 
-  private async stageAppliedChange(change: FilePatchChange): Promise<void> {
+  private async stageAppliedChange(change: FilePatchChange): Promise<boolean> {
     const uri = this.changeUri(change);
     const key = uri.toString();
-    if (!this.pending.has(key)) {
-      await this.captureBefore(change);
-    }
+    await this.captureBefore(change);
     const entry = this.pending.get(key);
     if (!entry) {
-      return;
+      return false;
     }
     entry.kind = change.kind;
     entry.diff = change.diff;
     entry.hunks = parseUnifiedDiffHunks(change.diff);
-    entry.after = (await this.readSnapshot(uri)).snapshot;
+    entry.after = await this.waitForAppliedSnapshot(entry);
     this.stagedKeys.add(key);
+    if (!appliedSnapshotIsVisible(entry.original, entry.after, entry.kind.type)) {
+      this.output.appendLine(`Inline review is still waiting for ${entry.label} to update on disk.`);
+      return false;
+    }
+    if (!entry.diff && entry.original) {
+      entry.diff = createSyntheticDiff(entry.original.text, entry.after.text);
+      entry.hunks = parseUnifiedDiffHunks(entry.diff);
+    }
+    entry.applied = true;
+    this.output.appendLine(`Inline review is ready for ${entry.label} while the turn continues.`);
+    return true;
+  }
+
+  private async waitForAppliedSnapshot(entry: PendingFileChange): Promise<FileSnapshot> {
+    let after = (await this.readSnapshot(entry.uri)).snapshot;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (appliedSnapshotIsVisible(entry.original, after, entry.kind.type)) {
+        return after;
+      }
+      await delay(35);
+      after = (await this.readSnapshot(entry.uri)).snapshot;
+    }
+    return after;
   }
 
   private createOrUpdateEntry(values: {
@@ -632,7 +657,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       new vscode.CodeLens(anchor, {
         title: "$(check) Keep file",
         tooltip: "Keep Codex's edits in this file",
-        command: "codexAgent.acceptFileChange",
+        command: "puneet2.acceptFileChange",
         arguments: [document.uri],
       }),
     ];
@@ -641,7 +666,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         new vscode.CodeLens(anchor, {
           title: "$(discard) Undo file",
           tooltip: "Restore the file to its pre-Codex content",
-          command: "codexAgent.rejectFileChange",
+          command: "puneet2.rejectFileChange",
           arguments: [document.uri],
         }),
       );
@@ -722,9 +747,9 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   private updateContextKeys(): void {
     const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
     const active = activeUri ? this.pending.get(activeUri) : undefined;
-    void vscode.commands.executeCommand("setContext", "codexAgent.hasPendingChanges", this.pendingCount > 0);
-    void vscode.commands.executeCommand("setContext", "codexAgent.activeFileHasPendingChanges", Boolean(active?.applied));
-    void vscode.commands.executeCommand("setContext", "codexAgent.activeFileCanReject", Boolean(active?.applied && active.canReject));
+    void vscode.commands.executeCommand("setContext", "puneet2.hasPendingChanges", this.pendingCount > 0);
+    void vscode.commands.executeCommand("setContext", "puneet2.activeFileHasPendingChanges", Boolean(active?.applied));
+    void vscode.commands.executeCommand("setContext", "puneet2.activeFileCanReject", Boolean(active?.applied && active.canReject));
   }
 
   private scheduleReviewPrompt(): void {
@@ -793,12 +818,14 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   }
 
   private get inlineReviewEnabled(): boolean {
-    return vscode.workspace.getConfiguration("codexAgent").get<boolean>("inlineReview.enabled", true);
+    return vscode.workspace.getConfiguration("puneet2").get<boolean>("inlineReview.enabled", true);
   }
 
   private logError(stage: string, error: unknown): void {
     this.output.appendLine(`Inline review could not process the ${stage}: ${errorMessage(error)}`);
-    vscode.window.showWarningMessage(`SCOPE inline review could not process a ${stage}. See the SCOPE output for details.`);
+    vscode.window.showWarningMessage(
+      `Puneet 3.0 inline review could not process a ${stage}. See the Puneet 3.0 output for details.`,
+    );
   }
 
   dispose(): void {

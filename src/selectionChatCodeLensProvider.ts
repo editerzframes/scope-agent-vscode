@@ -18,7 +18,7 @@ export class SelectionChatCodeLensProvider implements vscode.CodeLensProvider, v
       vscode.window.onDidChangeTextEditorSelection(() => this.codeLensEmitter.fire()),
       vscode.window.onDidChangeActiveTextEditor(() => this.codeLensEmitter.fire()),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("codexAgent.selectionAction.enabled")) {
+        if (event.affectsConfiguration("puneet2.selectionAction.enabled")) {
           this.codeLensEmitter.fire();
         }
       }),
@@ -27,7 +27,7 @@ export class SelectionChatCodeLensProvider implements vscode.CodeLensProvider, v
   }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-    if (!vscode.workspace.getConfiguration("codexAgent").get<boolean>("selectionAction.enabled", true)) {
+    if (!vscode.workspace.getConfiguration("puneet2").get<boolean>("selectionAction.enabled", true)) {
       return [];
     }
 
@@ -45,8 +45,8 @@ export class SelectionChatCodeLensProvider implements vscode.CodeLensProvider, v
     return [
       new vscode.CodeLens(anchor, {
         title: "$(comment-discussion) Add to Chat",
-        tooltip: "Attach this selected code to SCOPE",
-        command: "codexAgent.addSelection",
+        tooltip: "Attach this selected code to Puneet 3.0",
+        command: "puneet2.addSelection",
         arguments: [document.uri, selection],
       }),
     ];

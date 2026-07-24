@@ -1,12 +1,98 @@
 # Changelog
 
-## 1.0.0
+## 3.6.0
 
-- Renamed the public extension to SCOPE – AI Coding Agent.
-- Added the permanent `PuneetGarg.scope-agent` Marketplace identity.
-- Added public privacy, security, support, and contribution documentation.
-- Added a reproducible pre-publish build and GitHub Actions verification workflow.
-- Promoted the tested local coding, streaming, chat history, changed-file cards, inline review, and selected-code workflows to the v1 release.
+- Add **Summarize** and **Fix this** actions to expanded ClickUp ticket cards.
+- Keep summaries read-only and require an in-chat Go/No confirmation before switching to Agent mode for a fix.
+- Render Codex questions, choice descriptions, custom answers, secret inputs, and Skip actions directly in chat instead of the VS Code window bar.
+- Validate ticket action data and question answers before forwarding them to the local Codex runtime.
+
+## 3.5.1
+
+- Convert legacy ClickUp Markdown tables into the same compact ticket cards, including existing chat history.
+- Strengthen the automatic ClickUp prompt and bundled skill so new results use the structured card payload.
+- Preserve safe URL validation while extracting legacy ticket links.
+
+## 3.5.0
+
+- Render structured ClickUp results as compact, expandable, theme-aware ticket cards.
+- Preserve ClickUp-specific messages while streaming and reopening chat history.
+- Collapse fetch progress into one inspectable activity row and show a loading skeleton while ticket JSON streams.
+- Add safe DOM-based Markdown formatting and validated external links without using unsanitized HTML.
+- Restrict ticket actions to valid `https://app.clickup.com/t/...` URLs.
+
+## 3.4.0
+
+- Make ClickUp mode default to incomplete assigned Bug and Improvement work.
+- Resolve Bug work from the active Workspace's `Bingo Bash - Bugs` list.
+- Treat `improvement` as a ClickUp tag, matching the live Workspace metadata, and combine it with Bug-list results.
+- Deduplicate tickets and display an explicit Bug or Improvement category without guessing from title text.
+
+## 3.3.2
+
+- Use ClickUp's structured `filter_tasks` tool for assigned-ticket listings because global search can fail for otherwise authorized Workspaces.
+- Exclude custom `done`, `closed`, `complete`, `completed`, and `archived` statuses locally because ClickUp can return them even with `include_closed: false`.
+- Preserve pagination, subtasks, due-date ordering, and blocked-task prioritization for the resulting incomplete list.
+
+## 3.3.1
+
+- Reload MCP configuration and OAuth state before every automatic ClickUp fetch so a newly authorized Workspace works without restarting VS Code.
+- Verify and display the active ClickUp Workspace context before retrieving assigned tickets.
+- Stop claiming that one ClickUp MCP query searched Workspaces outside the active OAuth context.
+- Detect unexpected onboarding or personal Workspace scopes before presenting irrelevant tickets.
+
+## 3.3.0
+
+- Add ClickUp as a fourth mode beside Agent, Plan, and TAD.
+- Automatically fetch incomplete tickets assigned to the currently authenticated ClickUp user when ClickUp mode is selected.
+- Search the active authorized ClickUp Workspace and prioritize overdue, upcoming, and undated tickets.
+- Bundle and explicitly invoke a validated read-only ClickUp ticket skill.
+- Check MCP availability, authentication, and tool inventory before starting the ticket fetch, with actionable setup errors.
+- Keep fetched ticket context in the current chat so the user can switch to Plan or TAD for follow-up work.
+
+## 3.2.0
+
+- Add TAD as a third collaboration mode beside Agent and Plan.
+- Bundle and explicitly invoke a validated TAD skill while preserving the current chat and latest-plan context.
+- Generate implementation-ready Markdown documents with required Purpose, High-level overview, Technical flow, Setup/configuration, and Usage examples sections.
+- Guide Codex to add Mermaid flow, sequence, state, or data diagrams only where they improve the design.
+- Save completed TADs under `.puneet/tads` and reopen them from chat cards, the footer, or the command menu.
+- Restore TAD cards correctly when reopening chat history.
+- Add a configurable, workspace-relative `puneet2.tadDirectory` setting with traversal protection.
+
+## 3.1.1
+
+- Backfill earlier inline Plan items into Markdown files when their chat history loads.
+
+## 3.1.0
+
+- Save every completed Plan-mode response as a Markdown file under `.puneet/plans`.
+- Replace full Plan output in chat with a compact clickable plan-file card.
+- Add a Plans shortcut in the chat footer and command menu.
+- Persist plan-item-to-file mappings so saved plans reopen correctly from chat history.
+- Add a configurable, workspace-relative `puneet2.planDirectory` setting with traversal protection.
+
+## 3.0.0
+
+- Added a persistent Agent/Plan selector to the chat composer.
+- Connected Plan to Codex app-server's native collaboration mode and defaulted it to medium reasoning unless configured otherwise.
+- Streamed Plan output into the chat with a distinct visual treatment and restored completed plans from history.
+- Disabled mode switching during an active turn so follow-ups stay in the running turn's mode.
+- Updated the visible local extension branding to Puneet 3.0 while preserving the existing extension ID, settings, and workspace history.
+
+## 2.0.1
+
+- Show inline file review as soon as each file edit finishes while the rest of the turn continues.
+- Wait briefly for completed edits to become visible on disk before displaying Keep/Undo controls.
+- Restore the Puneet 2.0 icon for locally installed VSIX builds.
+
+## 2.0.0
+
+- Renamed the local extension to Puneet 2.0.
+- Isolated commands, settings, storage, views, and the Activity Bar container under `puneet2`.
+- Removed Marketplace publishing metadata, packaging scripts, and VSCE dependencies.
+- Added the redesigned signed-in and signed-out landing experiences.
+- Kept local coding, streaming, chat history, changed-file cards, inline review, and selected-code workflows.
 
 ## 0.10.0
 
