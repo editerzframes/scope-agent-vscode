@@ -2,7 +2,7 @@
   "name": "puneet-2",
   "displayName": "Puneet 3.0",
   "description": "A local-only VS Code coding-agent workbench powered by the documented OpenAI Codex app-server.",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "publisher": "local",
   "author": {
     "name": "Puneet Garg"
@@ -18,6 +18,9 @@
     "onCommand:puneet2.open"
   ],
   "main": "./dist/extension.js",
+  "enabledApiProposals": [
+    "editorInsets"
+  ],
   "extensionKind": [
     "workspace"
   ],
@@ -252,6 +255,11 @@
           "type": "boolean",
           "default": true,
           "description": "Highlight Codex changes in the existing editor, show compact per-hunk Undo/Keep actions above each changed block, and reveal the before/after diff on hover."
+        },
+        "puneet2.inlineReview.showRemovedLines": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show removed lines as virtual red blocks in the original editor when the local editorInsets proposed API is enabled."
         },
         "puneet2.selectionAction.enabled": {
           "type": "boolean",

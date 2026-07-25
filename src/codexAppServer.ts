@@ -100,7 +100,7 @@ export class CodexAppServer extends EventEmitter implements vscode.Disposable {
           clientInfo: {
             name: "puneet2_vscode",
             title: "Puneet 3.0",
-            version: "3.6.0",
+            version: "3.7.0",
           },
           capabilities: {
             experimentalApi: true,

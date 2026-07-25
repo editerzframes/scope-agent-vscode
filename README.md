@@ -19,7 +19,7 @@ Puneet 3.0 is a local-only VS Code coding-agent workbench powered by OpenAI's do
 - Browse workspace-scoped previous chats.
 - Stream assistant messages plus command, file, tool, search, and agent activity.
 - See changed-file cards with added/deleted counts and compact patch previews.
-- Review edits in the original editor with per-hunk **Undo** and **Keep** actions.
+- Review edits in the original editor with virtual red removed lines, green modified lines, and per-hunk **Undo** and **Keep** actions.
 - Hover highlighted changes to compare the previous and current code.
 - Select code to reveal an editor-native **Add to Chat** action.
 - Approve or decline command execution, file changes, and permission requests.
@@ -27,7 +27,7 @@ Puneet 3.0 is a local-only VS Code coding-agent workbench powered by OpenAI's do
 
 ## Requirements
 
-- Visual Studio Code 1.100 or newer.
+- Visual Studio Code 1.105.1 for the pinned local editor-inset experience.
 - A trusted local folder open in VS Code.
 - A current Codex CLI available as `codex`, or its absolute path configured in `puneet2.cliExecutable`.
 
@@ -58,6 +58,14 @@ Finish the browser authorization, restart the extension, then select **ClickUp**
 6. Sign in with ChatGPT or an OpenAI API key.
 7. Enter a prompt and review the resulting edits in chat and in the original editor, or select **ClickUp** to fetch your assigned tickets.
 
+The checked-in launch configuration enables the local `editorInsets` proposal
+for `local.puneet-2`. If you install the VSIX instead, start the compatible VS
+Code build with:
+
+```bash
+code --enable-proposed-api=local.puneet-2
+```
+
 Useful slash commands include `/new`, `/stop`, `/status`, `/compact`, `/review`, `/model`, `/init`, and `/help`.
 
 ## How it works
@@ -83,6 +91,7 @@ Official references:
 - `puneet2.sandbox`: `read-only`, `workspace-write`, or `danger-full-access`.
 - `puneet2.approvalPolicy`: `on-request`, `untrusted`, or `never`.
 - `puneet2.inlineReview.enabled`: show editor-native review highlights, actions, and hover diffs.
+- `puneet2.inlineReview.showRemovedLines`: show deleted content as virtual red editor rows when the local `editorInsets` API is available.
 - `puneet2.selectionAction.enabled`: show **Add to Chat** above selected code.
 
 ## Data and privacy
@@ -109,7 +118,7 @@ Open this folder in VS Code and press `F5` to launch the **Run Puneet 3.0** Exte
 
 ## Current boundaries
 
-Puneet 3.0 implements the core local coding loop but not every feature in OpenAI's first-party surfaces. Editor review uses stable VS Code decoration, hover, and CodeLens APIs; third-party extensions cannot reproduce private Cursor or first-party editor view-zone implementations exactly.
+Puneet 3.0 implements the core local coding loop but not every feature in OpenAI's first-party surfaces. Its local build combines stable decorations and CodeLens actions with VS Code's proposed `editorInsets` API to present virtual removed lines. The hover diff remains the fallback when that proposed API is unavailable.
 
 Unsaved files and files discovered only after a turn begins may be keep-only to avoid overwriting user work. Cloud task execution, worktree management, voice, image attachments, plugin management, and enterprise attestation UI are outside this local build. ClickUp support is limited to read-only ticket retrieval through an explicitly configured MCP connection.
 

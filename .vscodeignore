@@ -1,0 +1,15 @@
+.github/**
+.puneet/**
+.vscode/**
+docs/**
+node_modules/**
+src/**
+test/**
+
+*.vsix
+**/*.map
+.gitignore
+esbuild.mjs
+hello-world.js
+package-lock.json
+tsconfig.json

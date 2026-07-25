@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.7.0
+
+- Show removed source lines as virtual red blocks immediately above the green modified lines in the original editor.
+- Keep virtual deleted content out of the real document while preserving the existing per-hunk **Undo** and **Keep** CodeLens actions.
+- Dispose deleted-line previews as soon as a hunk is kept or undone, when its editor closes, or when inline review is disabled.
+- Limit exceptionally large deleted blocks to a compact preview and retain the complete red/green diff in the existing hover.
+- Fall back safely to hover-based review when the local `editorInsets` proposed API is unavailable.
+
 ## 3.6.0
 
 - Add **Summarize** and **Fix this** actions to expanded ClickUp ticket cards.
