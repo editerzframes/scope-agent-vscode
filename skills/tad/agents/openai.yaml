@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Architecture Document"
+  short_description: "Create implementation-ready architecture documents"
+  default_prompt: "Use $tad to create a technical architecture document from the current plan and repository context."

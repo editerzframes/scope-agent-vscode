@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -25,15 +24,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Test
         run: npm test
 
-      - name: Compile and package
-        run: npm run package
-
-      - name: Upload VSIX
-        uses: actions/upload-artifact@v4
-        with:
-          name: scope-agent-vsix
-          path: scope-agent-*.vsix
-          if-no-files-found: error
+      - name: Type-check and build
+        run: npm run build

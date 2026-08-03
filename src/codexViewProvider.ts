@@ -1,20 +1,33 @@
 import * as vscode from "vscode";
 import { CodexService, PublicState, UiTurnProgress } from "./codexService";
+import {
+  buildClickUpFixPrompt,
+  buildClickUpSummaryPrompt,
+  parseClickUpActionTicket,
+} from "./clickUpActions";
+import { isSafeClickUpTicketUrl, isSafeExternalUrl } from "./externalUrls";
 import { isRecord, rpcErrorMessage } from "./protocol";
 
 export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  static readonly viewType = "codexAgent.chat";
+  static readonly viewType = "puneet2.chat";
   private view: vscode.WebviewView | undefined;
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private wasRunning = false;
   private completionTimer: NodeJS.Timeout | undefined;
 
   private readonly stateListener = (state: PublicState): void => {
+    if (this.view) {
+      this.view.title = collaborationModeTitle(state.collaborationMode);
+    }
     void this.view?.webview.postMessage({ type: "state", state });
     this.updateNativeProgress(state);
   };
 
-  private readonly deltaListener = (delta: { id: string; delta: string }): void => {
+  private readonly deltaListener = (delta: {
+    id: string;
+    delta: string;
+    kind: "message" | "plan" | "clickup";
+  }): void => {
     void this.view?.webview.postMessage({ type: "delta", ...delta });
   };
 
@@ -27,8 +40,8 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     private readonly extensionUri: vscode.Uri,
     private readonly service: CodexService,
   ) {
-    this.statusBar.command = "codexAgent.open";
-    this.statusBar.name = "SCOPE task status";
+    this.statusBar.command = "puneet2.open";
+    this.statusBar.name = "Puneet 3.0 task status";
     this.service.on("state", this.stateListener);
     this.service.on("delta", this.deltaListener);
     this.service.on("progress", this.progressListener);
@@ -36,6 +49,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    view.title = collaborationModeTitle(this.service.state.collaborationMode);
     this.updateNativeProgress(this.service.state);
     view.webview.options = {
       enableScripts: true,
@@ -44,7 +58,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     view.webview.html = this.getHtml(view.webview);
     view.webview.onDidReceiveMessage((message: unknown) => void this.handleMessage(message));
     void this.service.initialize().catch((error: unknown) => {
-      vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
+      vscode.window.showErrorMessage(`Puneet 3.0: ${rpcErrorMessage(error)}`);
     });
   }
 
@@ -53,7 +67,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     const running = progress.status === "running";
     if (this.view) {
       this.view.badge = running
-        ? { value: 1, tooltip: `SCOPE is working: ${progress.label}` }
+        ? { value: 1, tooltip: `Puneet 3.0 is working: ${progress.label}` }
         : undefined;
     }
 
@@ -62,20 +76,20 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         clearTimeout(this.completionTimer);
         this.completionTimer = undefined;
       }
-      this.statusBar.text = `$(sync~spin) SCOPE: ${shorten(progress.label, 38)}`;
-      this.statusBar.tooltip = `${progress.detail}\nClick to open SCOPE.`;
+      this.statusBar.text = `$(sync~spin) Puneet 3.0: ${shorten(progress.label, 38)}`;
+      this.statusBar.tooltip = `${progress.detail}\nClick to open Puneet 3.0.`;
       this.statusBar.show();
     } else if (this.wasRunning) {
       const succeeded = progress.status === "completed";
-      this.statusBar.text = succeeded ? "$(check) SCOPE: Task finished" : "$(circle-slash) SCOPE: Task stopped";
-      this.statusBar.tooltip = `${progress.label}: ${progress.detail}\nClick to open SCOPE.`;
+      this.statusBar.text = succeeded ? "$(check) Puneet 3.0: Task finished" : "$(circle-slash) Puneet 3.0: Task stopped";
+      this.statusBar.tooltip = `${progress.label}: ${progress.detail}\nClick to open Puneet 3.0.`;
       this.statusBar.show();
       this.completionTimer = setTimeout(() => this.statusBar.hide(), 10_000);
 
       if (!this.view?.visible) {
-        const message = succeeded ? "SCOPE finished the task." : `SCOPE stopped: ${progress.label}.`;
-        void vscode.window.showInformationMessage(message, "Open SCOPE").then((choice) => {
-          if (choice === "Open SCOPE") {
+        const message = succeeded ? "Puneet 3.0 finished the task." : `Puneet 3.0 stopped: ${progress.label}.`;
+        void vscode.window.showInformationMessage(message, "Open Puneet 3.0").then((choice) => {
+          if (choice === "Open Puneet 3.0") {
             void this.reveal();
           }
         });
@@ -85,7 +99,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
   }
 
   async reveal(): Promise<void> {
-    await vscode.commands.executeCommand("workbench.view.extension.codexAgent");
+    await vscode.commands.executeCommand("workbench.view.extension.puneet2");
     await vscode.commands.executeCommand(`${CodexViewProvider.viewType}.focus`);
   }
 
@@ -115,6 +129,52 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     );
     if (picked) {
       await this.service.setModel(picked.model);
+    }
+  }
+
+  async pickCollaborationMode(): Promise<void> {
+    const state = this.service.state;
+    if (state.running) {
+      vscode.window.showInformationMessage("Wait for the current task to finish before changing modes.");
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      [
+        {
+          label: "$(sparkle) Agent",
+          description: state.collaborationMode === "agent" ? "Current" : undefined,
+          detail: "Inspect the workspace, run commands, and make code changes.",
+          mode: "agent" as const,
+        },
+        {
+          label: "$(map) Plan",
+          description: state.collaborationMode === "plan" ? "Current" : undefined,
+          detail: "Inspect the workspace and propose a plan without making code changes.",
+          mode: "plan" as const,
+        },
+        {
+          label: "$(book) TAD",
+          description: state.collaborationMode === "tad" ? "Current" : undefined,
+          detail: "Turn the current plan and repository context into a Technical Architecture Document.",
+          mode: "tad" as const,
+        },
+        {
+          label: "$(issues) ClickUp",
+          description: state.collaborationMode === "clickup" ? "Current" : undefined,
+          detail: "Fetch your incomplete assigned ClickUp tickets using the read-only ClickUp skill.",
+          mode: "clickup" as const,
+        },
+      ],
+      {
+        title: "Choose how Puneet 3.0 handles the next request",
+        placeHolder: `${collaborationModeTitle(state.collaborationMode)} mode`,
+      },
+    );
+    if (picked) {
+      await this.service.setCollaborationMode(picked.mode);
+      if (picked.mode === "clickup") {
+        await this.service.fetchMyClickUpTickets();
+      }
     }
   }
 
@@ -174,7 +234,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           await this.promptForApiKey();
           break;
         case "logout":
-          await vscode.commands.executeCommand("codexAgent.logout");
+          await vscode.commands.executeCommand("puneet2.logout");
           break;
         case "refresh":
           await this.service.refresh();
@@ -192,8 +252,57 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           break;
         case "openChangedFile":
           if (typeof message.path === "string") {
-            await vscode.commands.executeCommand("codexAgent.openChangedFile", message.path);
+            await vscode.commands.executeCommand("puneet2.openChangedFile", message.path);
           }
+          break;
+        case "openDocumentFile":
+          if (typeof message.path === "string") {
+            await this.service.openDocumentFile(message.path);
+          }
+          break;
+        case "openClickUpTicket":
+          if (!isSafeClickUpTicketUrl(message.url)) {
+            throw new Error("This ClickUp ticket link is not allowed.");
+          }
+          await vscode.env.openExternal(vscode.Uri.parse(message.url));
+          break;
+        case "openExternalLink":
+          if (!isSafeExternalUrl(message.url)) {
+            throw new Error("This external link is not allowed.");
+          }
+          await vscode.env.openExternal(vscode.Uri.parse(message.url));
+          break;
+        case "summarizeClickUpTicket": {
+          const ticket = parseClickUpActionTicket(message.ticket);
+          if (!ticket) {
+            throw new Error("The selected ClickUp ticket is invalid.");
+          }
+          await this.service.sendPrompt(buildClickUpSummaryPrompt(ticket));
+          break;
+        }
+        case "fixClickUpTicket": {
+          const ticket = parseClickUpActionTicket(message.ticket);
+          if (!ticket) {
+            throw new Error("The selected ClickUp ticket is invalid.");
+          }
+          await this.service.setCollaborationMode("agent");
+          await this.service.sendPrompt(buildClickUpFixPrompt(ticket));
+          break;
+        }
+        case "answerQuestion":
+          if (typeof message.questionId === "string") {
+            this.service.answerUserInput(
+              message.questionId,
+              message.answer,
+              message.custom === true,
+            );
+          }
+          break;
+        case "openPlans":
+          await this.service.revealPlansFolder();
+          break;
+        case "openTads":
+          await this.service.revealTadsFolder();
           break;
         case "stop":
           await this.service.stop();
@@ -208,28 +317,42 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
             await this.service.setModel(message.model);
           }
           break;
+        case "setCollaborationMode":
+          if (
+            message.mode === "agent" ||
+            message.mode === "plan" ||
+            message.mode === "tad" ||
+            message.mode === "clickup"
+          ) {
+            await this.service.setCollaborationMode(message.mode);
+          }
+          break;
+        case "activateClickUp":
+          await this.service.setCollaborationMode("clickup");
+          await this.service.fetchMyClickUpTickets();
+          break;
         case "removeContext":
           if (typeof message.id === "string") {
             this.service.removeContext(message.id);
           }
           break;
         case "addActiveFile":
-          await vscode.commands.executeCommand("codexAgent.addFile");
+          await vscode.commands.executeCommand("puneet2.addFile");
           break;
         case "addSelection":
-          await vscode.commands.executeCommand("codexAgent.addSelection");
+          await vscode.commands.executeCommand("puneet2.addSelection");
           break;
         case "openCommandMenu":
-          await vscode.commands.executeCommand("codexAgent.openCommandMenu");
+          await vscode.commands.executeCommand("puneet2.openCommandMenu");
           break;
         case "openSettings":
-          await vscode.commands.executeCommand("codexAgent.openSettings");
+          await vscode.commands.executeCommand("puneet2.openSettings");
           break;
         default:
           break;
       }
     } catch (error: unknown) {
-      vscode.window.showErrorMessage(`SCOPE: ${rpcErrorMessage(error)}`);
+      vscode.window.showErrorMessage(`Puneet 3.0: ${rpcErrorMessage(error)}`);
       await this.view?.webview.postMessage({ type: "actionError", message: rpcErrorMessage(error) });
     }
   }
@@ -261,7 +384,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         );
         return;
       case "/help":
-        await vscode.commands.executeCommand("codexAgent.openCommandMenu");
+        await vscode.commands.executeCommand("puneet2.openCommandMenu");
         return;
       default:
         await this.service.sendPrompt(prompt);
@@ -271,7 +394,11 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
   private getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "main.css"));
+    const clickUpPayloadUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, "media", "clickupPayload.js"),
+    );
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "main.js"));
+    const brandUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "puneet-2-icon.png"));
     return `<!doctype html>
 <html lang="en">
   <head>
@@ -279,7 +406,7 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';" />
     <link rel="stylesheet" href="${styleUri}" />
-    <title>SCOPE – AI Coding Agent</title>
+    <title>Puneet 3.0</title>
   </head>
   <body>
     <main id="root" aria-live="polite">
@@ -288,13 +415,45 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         <p>Starting local Codex…</p>
       </section>
 
-      <section id="signed-out" class="centered hidden">
-        <div class="brand-mark" aria-hidden="true">⌁</div>
-        <h1>SCOPE</h1>
-        <p class="muted">Run a local AI coding agent against the folder open in VS Code.</p>
-        <button id="login-chatgpt" class="primary wide">Sign in with ChatGPT</button>
-        <button id="login-api-key" class="secondary wide">Use an API key</button>
-        <p class="fine-print">Unofficial client powered by the documented Codex app-server. Authentication is handled by the local Codex runtime.</p>
+      <section id="signed-out" class="landing landing-auth hidden">
+        <div class="landing-aura" aria-hidden="true"></div>
+        <div class="auth-shell">
+          <div class="brand-lockup">
+            <img class="puneet-logo" src="${brandUri}" alt="" />
+            <div>
+              <strong>Puneet 3.0</strong>
+              <span>AI coding agent</span>
+            </div>
+          </div>
+
+          <div class="landing-heading">
+            <span class="eyebrow">LOCAL AGENT WORKSPACE</span>
+            <h1>Build with your codebase in view.</h1>
+            <p>Plan changes, edit files, run commands, and review the result without leaving VS Code.</p>
+          </div>
+
+          <div class="auth-actions">
+            <button id="login-chatgpt" class="auth-button primary">
+              <span>Continue with ChatGPT</span>
+              <span class="button-arrow" aria-hidden="true">→</span>
+            </button>
+            <button id="login-api-key" class="auth-button secondary">
+              <span>Use an API key</span>
+              <span class="button-arrow" aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          <div class="trust-row" aria-label="Puneet 3.0 capabilities">
+            <span><i aria-hidden="true">✓</i> Workspace-aware</span>
+            <span><i aria-hidden="true">✓</i> Approval-first</span>
+            <span><i aria-hidden="true">✓</i> Inline review</span>
+          </div>
+
+          <p class="runtime-note">
+            <span class="runtime-dot" aria-hidden="true"></span>
+            Authentication is handled by your local Codex runtime.
+          </p>
+        </div>
       </section>
 
       <section id="app" class="app hidden">
@@ -327,24 +486,56 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         <div id="workspace-banner" class="banner warning hidden">Open a local folder to let Codex inspect and edit code.</div>
         <section id="limits" class="limits hidden" aria-label="Usage limits"></section>
 
-        <section id="empty-state" class="empty-state">
-          <div class="brand-mark small" aria-hidden="true">⌁</div>
-          <h2>What should we build?</h2>
-          <p>Ask for an explanation, a plan, a review, or a real code change in this workspace.</p>
-          <div class="suggestions">
-            <button data-prompt="Explain this repository and its architecture.">Explain this repo</button>
-            <button data-prompt="Find a useful improvement, implement it, and verify the result.">Make an improvement</button>
-            <button data-command="review">Review my changes</button>
+        <section id="empty-state" class="landing landing-home">
+          <div class="landing-aura" aria-hidden="true"></div>
+          <div class="home-shell">
+            <div class="workspace-pill">
+              <span class="workspace-ready-dot" aria-hidden="true"></span>
+              <span><span id="landing-workspace-prefix">Ready in </span><strong id="landing-workspace">this workspace</strong></span>
+            </div>
+
+            <div class="home-hero">
+              <img class="puneet-logo compact" src="${brandUri}" alt="" />
+              <h2>What would you like to build?</h2>
+              <p>Describe the outcome you want, or start with one of these focused actions.</p>
+            </div>
+
+            <div class="suggestions" aria-label="Starter actions">
+              <button data-prompt="Explain this repository and its architecture.">
+                <span class="suggestion-icon" aria-hidden="true">◎</span>
+                <span class="suggestion-copy">
+                  <strong>Understand this project</strong>
+                  <small>Map the architecture and important files</small>
+                </span>
+                <span class="suggestion-arrow" aria-hidden="true">›</span>
+              </button>
+              <button data-prompt="Find a useful improvement, implement it, and verify the result.">
+                <span class="suggestion-icon" aria-hidden="true">↗</span>
+                <span class="suggestion-copy">
+                  <strong>Improve something</strong>
+                  <small>Find, implement, and verify a useful change</small>
+                </span>
+                <span class="suggestion-arrow" aria-hidden="true">›</span>
+              </button>
+              <button data-command="review">
+                <span class="suggestion-icon" aria-hidden="true">±</span>
+                <span class="suggestion-copy">
+                  <strong>Review current changes</strong>
+                  <small>Inspect the edits already in this workspace</small>
+                </span>
+                <span class="suggestion-arrow" aria-hidden="true">›</span>
+              </button>
+            </div>
           </div>
         </section>
 
-        <section id="transcript" class="transcript" aria-label="SCOPE conversation"></section>
+        <section id="transcript" class="transcript" aria-label="Puneet 3.0 conversation"></section>
         <section id="activities" class="activities hidden" aria-label="Agent activity"></section>
         <section id="run-status" class="run-status hidden" role="status" aria-live="polite">
           <div class="run-status-main">
             <span id="run-status-icon" class="run-status-icon" aria-hidden="true"></span>
             <div class="run-status-copy">
-              <strong id="run-status-label">SCOPE is working</strong>
+              <strong id="run-status-label">Puneet 3.0 is working</strong>
               <span id="run-status-detail">The task is still running.</span>
             </div>
             <time id="run-status-time">0:00</time>
@@ -356,13 +547,22 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
         <footer class="composer-shell">
           <div id="contexts" class="contexts hidden"></div>
           <div class="composer">
-            <textarea id="prompt" rows="1" placeholder="Ask SCOPE to change your code…" aria-label="Prompt"></textarea>
+            <textarea id="prompt" rows="1" placeholder="Ask Puneet 3.0 to change your code…" aria-label="Prompt"></textarea>
             <div class="composer-toolbar">
               <div class="composer-left">
                 <button id="add-file" class="tool-button" title="Add active file">＋ File</button>
                 <button id="add-selection" class="tool-button" title="Add selected code">Selection</button>
               </div>
               <div class="composer-right">
+                <label id="mode-picker" class="mode-picker" title="Choose how Puneet 3.0 handles the next request">
+                  <span id="mode-icon" class="mode-icon" aria-hidden="true">◆</span>
+                  <select id="collaboration-mode" aria-label="Collaboration mode">
+                    <option value="agent">Agent</option>
+                    <option value="plan">Plan</option>
+                    <option value="tad">TAD</option>
+                    <option value="clickup">ClickUp</option>
+                  </select>
+                </label>
                 <select id="model" title="Model" aria-label="Codex model"></select>
                 <button id="stop" class="stop-button hidden" title="Stop current turn" aria-label="Stop">■</button>
                 <button id="send" class="send-button" title="Send" aria-label="Send">↑</button>
@@ -371,11 +571,16 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           </div>
           <div class="footer-row">
             <span id="workspace-name"></span>
-            <button id="settings" class="link-button">Settings</button>
+            <div class="footer-actions">
+              <button id="plans" class="link-button">Plans</button>
+              <button id="tads" class="link-button">TADs</button>
+              <button id="settings" class="link-button">Settings</button>
+            </div>
           </div>
         </footer>
       </section>
     </main>
+    <script nonce="${nonce}" src="${clickUpPayloadUri}"></script>
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
 </html>`;
@@ -390,6 +595,10 @@ export class CodexViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     this.service.off("delta", this.deltaListener);
     this.service.off("progress", this.progressListener);
   }
+}
+
+function collaborationModeTitle(mode: PublicState["collaborationMode"]): string {
+  return mode === "clickup" ? "ClickUp" : mode === "tad" ? "TAD" : mode === "plan" ? "Plan" : "Agent";
 }
 
 function shorten(value: string, maxLength: number): string {

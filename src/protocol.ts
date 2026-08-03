@@ -44,7 +44,13 @@ export interface UserMentionInput {
   path: string;
 }
 
-export type UserInput = UserTextInput | UserMentionInput;
+export interface UserSkillInput {
+  type: "skill";
+  name: string;
+  path: string;
+}
+
+export type UserInput = UserTextInput | UserMentionInput | UserSkillInput;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

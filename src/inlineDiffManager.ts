@@ -16,6 +16,11 @@ import {
   reverseHunkInText,
   UnifiedDiffHunk,
 } from "./unifiedDiff";
+import { appliedSnapshotIsVisible } from "./inlineReviewTiming";
+import {
+  deletedLinePreviewForHunk,
+  deletedLinePreviewHtml,
+} from "./deletedLinePreview";
 
 interface FileSnapshot {
   exists: boolean;
@@ -42,6 +47,13 @@ interface PendingFileChange {
   applied: boolean;
 }
 
+interface DeletedLineInsetState {
+  editor: vscode.TextEditor;
+  inset: vscode.WebviewEditorInset;
+  signature: string;
+  disposeListener?: vscode.Disposable;
+}
+
 const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
 
 export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Disposable {
@@ -52,6 +64,11 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   private readonly captureTasks = new Map<string, Promise<void>>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly codeLensEmitter = new vscode.EventEmitter<void>();
+  private readonly deletedLineInsets = new Map<string, DeletedLineInsetState>();
+  private readonly editorKeys = new WeakMap<vscode.TextEditor, number>();
+  private nextEditorKey = 1;
+  private editorInsetsUnavailable = false;
+  private editorInsetsUnavailableReported = false;
   private reviewPromptTimer: NodeJS.Timeout | undefined;
 
   readonly onDidChangeCodeLenses = this.codeLensEmitter.event;
@@ -103,6 +120,14 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       vscode.window.onDidChangeActiveTextEditor(() => this.updateContextKeys()),
       vscode.workspace.onDidOpenTextDocument(() => this.refreshVisibleEditors()),
       vscode.workspace.onDidChangeTextDocument(() => this.refreshVisibleEditors()),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (
+          event.affectsConfiguration("puneet2.inlineReview.enabled") ||
+          event.affectsConfiguration("puneet2.inlineReview.showRemovedLines")
+        ) {
+          this.refreshReviewUi();
+        }
+      }),
       this.changeDecoration,
       this.deletionBoundaryDecoration,
       this.codeLensEmitter,
@@ -131,7 +156,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
           new vscode.CodeLens(anchor, {
             title: "$(discard) Undo",
             tooltip: "Restore this block to its pre-Codex content",
-            command: "codexAgent.rejectHunk",
+            command: "puneet2.rejectHunk",
             arguments: [document.uri, hunk.id],
           }),
         );
@@ -140,7 +165,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         new vscode.CodeLens(anchor, {
           title: "$(check) Keep",
           tooltip: "Keep this Codex change",
-          command: "codexAgent.acceptHunk",
+          command: "puneet2.acceptHunk",
           arguments: [document.uri, hunk.id],
         }),
       );
@@ -365,7 +390,10 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       }
       return;
     }
-    await Promise.all(event.changes.map((change) => this.stageAppliedChange(change)));
+    const applied = await Promise.all(event.changes.map((change) => this.stageAppliedChange(change)));
+    if (applied.some(Boolean)) {
+      this.refreshReviewUi();
+    }
   }
 
   private async finalizeTurn(_event: TurnFinishedEvent): Promise<void> {
@@ -508,21 +536,42 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     await task;
   }
 
-  private async stageAppliedChange(change: FilePatchChange): Promise<void> {
+  private async stageAppliedChange(change: FilePatchChange): Promise<boolean> {
     const uri = this.changeUri(change);
     const key = uri.toString();
-    if (!this.pending.has(key)) {
-      await this.captureBefore(change);
-    }
+    await this.captureBefore(change);
     const entry = this.pending.get(key);
     if (!entry) {
-      return;
+      return false;
     }
     entry.kind = change.kind;
     entry.diff = change.diff;
     entry.hunks = parseUnifiedDiffHunks(change.diff);
-    entry.after = (await this.readSnapshot(uri)).snapshot;
+    entry.after = await this.waitForAppliedSnapshot(entry);
     this.stagedKeys.add(key);
+    if (!appliedSnapshotIsVisible(entry.original, entry.after, entry.kind.type)) {
+      this.output.appendLine(`Inline review is still waiting for ${entry.label} to update on disk.`);
+      return false;
+    }
+    if (!entry.diff && entry.original) {
+      entry.diff = createSyntheticDiff(entry.original.text, entry.after.text);
+      entry.hunks = parseUnifiedDiffHunks(entry.diff);
+    }
+    entry.applied = true;
+    this.output.appendLine(`Inline review is ready for ${entry.label} while the turn continues.`);
+    return true;
+  }
+
+  private async waitForAppliedSnapshot(entry: PendingFileChange): Promise<FileSnapshot> {
+    let after = (await this.readSnapshot(entry.uri)).snapshot;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (appliedSnapshotIsVisible(entry.original, after, entry.kind.type)) {
+        return after;
+      }
+      await delay(35);
+      after = (await this.readSnapshot(entry.uri)).snapshot;
+    }
+    return after;
   }
 
   private createOrUpdateEntry(values: {
@@ -632,7 +681,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
       new vscode.CodeLens(anchor, {
         title: "$(check) Keep file",
         tooltip: "Keep Codex's edits in this file",
-        command: "codexAgent.acceptFileChange",
+        command: "puneet2.acceptFileChange",
         arguments: [document.uri],
       }),
     ];
@@ -641,7 +690,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
         new vscode.CodeLens(anchor, {
           title: "$(discard) Undo file",
           tooltip: "Restore the file to its pre-Codex content",
-          command: "codexAgent.rejectFileChange",
+          command: "puneet2.rejectFileChange",
           arguments: [document.uri],
         }),
       );
@@ -684,11 +733,21 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   }
 
   private refreshVisibleEditors(): void {
+    const visibleEditors = new Set(vscode.window.visibleTextEditors);
+    for (const [key, state] of this.deletedLineInsets) {
+      if (!visibleEditors.has(state.editor)) {
+        this.disposeDeletedLineInset(key, state);
+      }
+    }
+
     for (const editor of vscode.window.visibleTextEditors) {
-      const entry = this.pending.get(editor.document.uri.toString());
+      const entry = this.inlineReviewEnabled
+        ? this.pending.get(editor.document.uri.toString())
+        : undefined;
       if (!entry?.applied) {
         editor.setDecorations(this.changeDecoration, []);
         editor.setDecorations(this.deletionBoundaryDecoration, []);
+        this.syncDeletedLineInsets(editor, null);
         continue;
       }
       const ranges = this.editorRanges(editor.document, entry);
@@ -707,6 +766,117 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
           .filter((hunk) => changedLinesForHunk(hunk).removed.length > 0)
           .map((hunk) => this.hunkAnchor(editor.document, hunk)),
       );
+      this.syncDeletedLineInsets(editor, entry);
+    }
+  }
+
+  private syncDeletedLineInsets(editor: vscode.TextEditor, entry: PendingFileChange | null): void {
+    const editorKey = this.editorKey(editor);
+    const keyPrefix = `${editorKey}:`;
+    const desiredKeys = new Set<string>();
+
+    if (
+      entry &&
+      this.virtualRemovedLinesEnabled &&
+      !this.editorInsetsUnavailable
+    ) {
+      for (const hunk of entry.hunks) {
+        const preview = deletedLinePreviewForHunk(hunk, editor.document.lineCount);
+        if (!preview) {
+          continue;
+        }
+        const key = `${keyPrefix}${hunk.id}`;
+        desiredKeys.add(key);
+        const current = this.deletedLineInsets.get(key);
+        if (current?.signature === preview.signature) {
+          continue;
+        }
+        if (current) {
+          this.disposeDeletedLineInset(key, current);
+        }
+
+        try {
+          const createInset = vscode.window.createWebviewTextEditorInset;
+          if (typeof createInset !== "function") {
+            throw new Error("The editorInsets API is not present in this VS Code build.");
+          }
+          const inset = createInset(
+            editor,
+            preview.afterLine,
+            preview.heightInLines,
+            { enableScripts: false },
+          );
+          inset.webview.html = deletedLinePreviewHtml(preview, inset.webview.cspSource);
+
+          const state: DeletedLineInsetState = {
+            editor,
+            inset,
+            signature: preview.signature,
+          };
+          state.disposeListener = inset.onDidDispose(() => {
+            const active = this.deletedLineInsets.get(key);
+            if (active?.inset === inset) {
+              this.deletedLineInsets.delete(key);
+              active.disposeListener?.dispose();
+            }
+          });
+          this.deletedLineInsets.set(key, state);
+        } catch (error: unknown) {
+          this.handleEditorInsetError(error);
+          break;
+        }
+      }
+    }
+
+    for (const [key, state] of this.deletedLineInsets) {
+      if (key.startsWith(keyPrefix) && !desiredKeys.has(key)) {
+        this.disposeDeletedLineInset(key, state);
+      }
+    }
+  }
+
+  private editorKey(editor: vscode.TextEditor): number {
+    const existing = this.editorKeys.get(editor);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const key = this.nextEditorKey;
+    this.nextEditorKey += 1;
+    this.editorKeys.set(editor, key);
+    return key;
+  }
+
+  private disposeDeletedLineInset(key: string, state: DeletedLineInsetState): void {
+    if (this.deletedLineInsets.get(key) !== state) {
+      return;
+    }
+    this.deletedLineInsets.delete(key);
+    state.disposeListener?.dispose();
+    state.inset.dispose();
+  }
+
+  private disposeAllDeletedLineInsets(): void {
+    for (const [key, state] of [...this.deletedLineInsets]) {
+      this.disposeDeletedLineInset(key, state);
+    }
+  }
+
+  private handleEditorInsetError(error: unknown): void {
+    const message = errorMessage(error);
+    if (message === "not a visible editor") {
+      return;
+    }
+    this.editorInsetsUnavailable = true;
+    this.disposeAllDeletedLineInsets();
+    this.output.appendLine(
+      `Virtual removed-line previews are unavailable; using the hover fallback. ${message}`,
+    );
+    if (!this.editorInsetsUnavailableReported) {
+      this.editorInsetsUnavailableReported = true;
+      vscode.window.setStatusBarMessage(
+        "Puneet 3.0: virtual removed lines need the editorInsets proposed API; hover previews remain available.",
+        8_000,
+      );
     }
   }
 
@@ -722,9 +892,9 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   private updateContextKeys(): void {
     const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
     const active = activeUri ? this.pending.get(activeUri) : undefined;
-    void vscode.commands.executeCommand("setContext", "codexAgent.hasPendingChanges", this.pendingCount > 0);
-    void vscode.commands.executeCommand("setContext", "codexAgent.activeFileHasPendingChanges", Boolean(active?.applied));
-    void vscode.commands.executeCommand("setContext", "codexAgent.activeFileCanReject", Boolean(active?.applied && active.canReject));
+    void vscode.commands.executeCommand("setContext", "puneet2.hasPendingChanges", this.pendingCount > 0);
+    void vscode.commands.executeCommand("setContext", "puneet2.activeFileHasPendingChanges", Boolean(active?.applied));
+    void vscode.commands.executeCommand("setContext", "puneet2.activeFileCanReject", Boolean(active?.applied && active.canReject));
   }
 
   private scheduleReviewPrompt(): void {
@@ -793,12 +963,20 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
   }
 
   private get inlineReviewEnabled(): boolean {
-    return vscode.workspace.getConfiguration("codexAgent").get<boolean>("inlineReview.enabled", true);
+    return vscode.workspace.getConfiguration("puneet2").get<boolean>("inlineReview.enabled", true);
+  }
+
+  private get virtualRemovedLinesEnabled(): boolean {
+    return vscode.workspace
+      .getConfiguration("puneet2")
+      .get<boolean>("inlineReview.showRemovedLines", true);
   }
 
   private logError(stage: string, error: unknown): void {
     this.output.appendLine(`Inline review could not process the ${stage}: ${errorMessage(error)}`);
-    vscode.window.showWarningMessage(`SCOPE inline review could not process a ${stage}. See the SCOPE output for details.`);
+    vscode.window.showWarningMessage(
+      `Puneet 3.0 inline review could not process a ${stage}. See the Puneet 3.0 output for details.`,
+    );
   }
 
   dispose(): void {
@@ -809,6 +987,7 @@ export class InlineDiffManager implements vscode.CodeLensProvider, vscode.Dispos
     this.service.off("turnPreparing", this.turnPreparingListener);
     this.service.off("turnDiff", this.turnDiffListener);
     this.service.off("turnFinished", this.turnFinishedListener);
+    this.disposeAllDeletedLineInsets();
     for (const disposable of this.disposables) {
       disposable.dispose();
     }

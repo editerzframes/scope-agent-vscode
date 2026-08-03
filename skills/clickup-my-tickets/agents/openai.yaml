@@ -1,0 +1,11 @@
+interface:
+  display_name: "ClickUp My Tickets"
+  short_description: "Fetch your assigned ClickUp tickets safely"
+  default_prompt: "Use $clickup-my-tickets to fetch my assigned ClickUp tickets without changing anything."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "clickup"
+      description: "Read assigned tickets from the official ClickUp MCP server"
+      transport: "streamable_http"
+      url: "https://mcp.clickup.com/mcp"
